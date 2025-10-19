@@ -1,0 +1,21 @@
+# Go builds
+/bin/
+/build/
+/dist/
+*.exe
+*.out
+*.test
+
+# Environment variables and configs
+.env
+.env.*
+!example.env
+
+# Logging
+logs/
+*.log
+
+# Dendency caches
+vendor/
+go.sum
+*.mod~

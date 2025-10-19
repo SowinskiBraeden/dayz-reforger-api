@@ -1,0 +1,55 @@
+package config
+
+import (
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+)
+
+type Config struct {
+	MongoURI     string
+	DatabaseName string
+	JWTSecret    string
+	ClientID     string // Discord client ID
+	ClientSecret string // Discord client secret
+	RedirectURI  string // Discord OAuth redirect URL
+	ListenAddr   string
+	FrontendURL  string // for CORS
+}
+
+// Load loads environment variables into the Config struct.
+func Load() *Config {
+	// Load .env file only in development
+	_ = godotenv.Load()
+
+	cfg := &Config{
+		MongoURI:     mustGetEnv("MONGO_URI"),
+		DatabaseName: getEnv("MONGO_DB", "dayzReforger"),
+		JWTSecret:    mustGetEnv("JWT_SECRET"),
+		ClientID:     mustGetEnv("DISCORD_CLIENT_ID"),
+		ClientSecret: mustGetEnv("DISCORD_CLIENT_SECRET"),
+		RedirectURI:  mustGetEnv("DISCORD_REDIRECT_URI"),
+		ListenAddr:   getEnv("LISTEN_ADDR", ":8080"),
+		FrontendURL:  getEnv("FRONTEND_URL", "http://localhost:5173"),
+	}
+
+	log.Printf("Loaded configuration for MongoDB: %s", cfg.DatabaseName)
+	return cfg
+}
+
+func mustGetEnv(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		log.Fatalf("Missing required environment variable: %s", key)
+	}
+	return val
+}
+
+func getEnv(key, def string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		return def
+	}
+	return val
+}
