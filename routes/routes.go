@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"log"
+
 	"github.com/SowinskiBraeden/dayz-reforger-api/config"
 	"github.com/SowinskiBraeden/dayz-reforger-api/middleware"
 
@@ -9,6 +11,12 @@ import (
 
 // RegisterRoutes sets up all route groups
 func RegisterRoutes(router *gin.Engine, cfg *config.Config) {
+
+	log.Println("Registering routes...")
+	for _, r := range router.Routes() {
+		log.Printf("%s %s", r.Method, r.Path)
+	}
+
 	// Share config across requests
 	router.Use(func(c *gin.Context) {
 		c.Set("config", cfg)

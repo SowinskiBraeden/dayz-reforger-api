@@ -46,11 +46,6 @@ func main() {
 		}
 	}()
 
-	log.Println("Registering routes...")
-	for _, r := range router.Routes() {
-		log.Printf("%s %s", r.Method, r.Path)
-	}
-
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
