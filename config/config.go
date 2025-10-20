@@ -1,13 +1,14 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strings"
 
+	"github.com/SowinskiBraeden/dayz-reforger-api/utils"
 	"github.com/joho/godotenv"
 )
 
+// Config holds all environment configuration values
 type Config struct {
 	MongoURI       string
 	DatabaseName   string
@@ -20,10 +21,15 @@ type Config struct {
 	InternalAPIKey string
 }
 
-// Load loads environment variables into the Config struct.
 func Load() *Config {
+	utils.LogInfo("[Config] Loading environment configuration")
+
 	// Load .env file only in development
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err == nil {
+		utils.LogInfo("[Config] Loaded .env file successfully")
+	} else {
+		utils.LogWarn("[Config] No .env file found, using system environment variables")
+	}
 
 	frontendEnv := getEnv("FRONTEND_URL", "http://localhost:5173")
 
@@ -35,9 +41,9 @@ func Load() *Config {
 			frontendURLs = append(frontendURLs, url)
 		}
 	}
-
 	if len(frontendURLs) == 0 {
 		frontendURLs = []string{"http://localhost:5173"}
+		utils.LogWarn("[Config] FRONTEND_URL missing, defaulting to %s", frontendURLs[0])
 	}
 
 	cfg := &Config{
@@ -49,17 +55,20 @@ func Load() *Config {
 		RedirectURI:    mustGetEnv("DISCORD_REDIRECT_URI"),
 		ListenAddr:     getEnv("LISTEN_ADDR", ":8080"),
 		FrontendURL:    frontendURLs,
-		InternalAPIKey: mustGetEnv("INTERNAL_API_KEY"), // 👈 new env var
+		InternalAPIKey: mustGetEnv("INTERNAL_API_KEY"),
 	}
 
-	log.Printf("Loaded configuration for MongoDB: %s", cfg.DatabaseName)
+	utils.LogSuccess("[Config] Configuration loaded successfully")
+	utils.LogInfo("[Config] MongoDB: %s | Listen: %s | Frontend: %v", cfg.DatabaseName, cfg.ListenAddr, cfg.FrontendURL)
+
 	return cfg
 }
 
 func mustGetEnv(key string) string {
 	val := os.Getenv(key)
 	if val == "" {
-		log.Fatalf("Missing required environment variable: %s", key)
+		utils.LogError("[Config] Missing required environment variable: %s", key)
+		panic("missing required environment variable: " + key)
 	}
 	return val
 }
@@ -67,6 +76,7 @@ func mustGetEnv(key string) string {
 func getEnv(key, def string) string {
 	val := os.Getenv(key)
 	if val == "" {
+		utils.LogWarn("[Config] Using default value for %s: %s", key, def)
 		return def
 	}
 	return val

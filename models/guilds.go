@@ -1,6 +1,10 @@
 package models
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 type Alarm struct {
 }
@@ -14,14 +18,6 @@ type Event struct {
 type FactionArmband struct {
 	Faction string `bson:"faction" json:"faction"`
 	Armband string `bson:"armband" json:"armband"`
-}
-
-type NitradoConfig struct {
-	ServerID string `bson:"ServerID" json:"ServerID"`
-	UserID   string `bson:"UserID" json:"UserID"`
-	Auth     string `bson:"Auth" json:"Auth"`
-	Status   string `bson:"Status" json:"Status"`
-	Mission  string `bson:"Mission" json:"Mission"`
 }
 
 type GuildAttributes struct {
@@ -57,7 +53,8 @@ type GuildAttributes struct {
 }
 
 type GuildConfig struct {
-	ID      primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Server  GuildAttributes    `bson:"server" json:"server"`
-	Nitrado NitradoConfig      `bson:"Nitrado" json:"Nitrado"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Server    GuildAttributes    `bson:"server" json:"server"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }

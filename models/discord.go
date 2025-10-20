@@ -11,6 +11,7 @@ type DiscordTokenResponse struct {
 type DiscordUser struct {
 	ID            string `json:"id"`
 	Username      string `json:"username"`
+	Email         string `json:"email"`
 	Discriminator string `json:"discriminator"`
 	Avatar        string `json:"avatar"`
 }

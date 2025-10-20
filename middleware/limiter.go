@@ -24,9 +24,11 @@ type clientLimiter struct {
 	lastSeen time.Time
 }
 
-var globalLimiter = newRateLimiter(3, 8) // 3 req/sec, burst 8
+// globalLimiter: 3 requests/sec with burst of 8
+var globalLimiter = newRateLimiter(3, 8)
 
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
+	utils.LogInfo("[RateLimiter] Initializing global rate limiter: %.2f req/sec, burst=%d", r, b)
 	rl := &rateLimiter{
 		limiters: make(map[string]*clientLimiter),
 		r:        r,
@@ -44,14 +46,16 @@ func (rl *rateLimiter) getLimiter(key string) *rate.Limiter {
 
 	cl, exists := rl.limiters[key]
 	if !exists {
+		utils.LogInfo("[RateLimiter] Creating new limiter for key=%s", key)
 		cl = &clientLimiter{
 			limiter:  rate.NewLimiter(rl.r, rl.b),
 			lastSeen: time.Now(),
 		}
 		rl.limiters[key] = cl
+	} else {
+		cl.lastSeen = time.Now()
 	}
 
-	cl.lastSeen = time.Now()
 	return cl.limiter
 }
 
@@ -60,44 +64,55 @@ func (rl *rateLimiter) cleanupLoop(interval time.Duration) {
 	for {
 		time.Sleep(interval)
 		rl.mu.Lock()
+		cleaned := 0
 		for key, cl := range rl.limiters {
 			if time.Since(cl.lastSeen) > 30*time.Minute {
 				delete(rl.limiters, key)
+				cleaned++
 			}
 		}
 		rl.mu.Unlock()
+
+		if cleaned > 0 {
+			utils.LogInfo("[RateLimiter] Cleaned up %d stale limiter(s)", cleaned)
+		}
 	}
 }
 
 // RateLimitMiddleware applies rate limiting for user requests
 func RateLimitMiddleware() gin.HandlerFunc {
+	utils.LogInfo("[RateLimiter] Rate limiting middleware initialized")
+
 	return func(c *gin.Context) {
 		authType, _ := c.Get("authType")
 		if authType == "bot" {
+			// Skip limiting for internal bot requests
 			c.Next()
 			return
 		}
 
-		// Default key is the client IP
+		// Default key: client IP
 		key := c.ClientIP()
 
-		// If user authenticated, use hybrid key: userID:IP
+		// If user is authenticated, combine userID + IP
 		if claims, exists := c.Get("claims"); exists {
 			if jwtClaims, ok := claims.(*utils.JWTClaims); ok && jwtClaims.UserID != "" {
 				key = jwtClaims.UserID + ":" + c.ClientIP()
 			}
 		}
 
-		// Get limiter for this key
 		limiter := globalLimiter.getLimiter(key)
 
 		if !limiter.Allow() {
+			utils.LogWarn("[RateLimiter] Rate limit exceeded for key=%s (IP=%s)", key, c.ClientIP())
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "too many requests, please slow down",
 			})
 			return
 		}
 
+		// Only log occasionally to avoid noise
+		utils.LogInfo("[RateLimiter] Request allowed for key=%s", key)
 		c.Next()
 	}
 }
