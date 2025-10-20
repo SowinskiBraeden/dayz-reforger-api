@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,33 +11,12 @@ import (
 	"time"
 
 	"github.com/SowinskiBraeden/dayz-reforger-api/config"
+	"github.com/SowinskiBraeden/dayz-reforger-api/models"
 	"github.com/SowinskiBraeden/dayz-reforger-api/utils"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/gin-gonic/gin"
 )
-
-type DiscordTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
-	Scope        string `json:"scope"`
-}
-
-type DiscordUser struct {
-	ID            string `json:"id"`
-	Username      string `json:"username"`
-	Discriminator string `json:"discriminator"`
-	Avatar        string `json:"avatar"`
-}
-
-type DiscordGuild struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Icon        string `json:"icon"`
-	Owner       bool   `json:"owner"`
-	Permissions int64  `json:"permissions,string"`
-}
 
 // Redirects user to Discord login
 func DiscordLogin(c *gin.Context) {
@@ -90,7 +70,7 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	var token DiscordTokenResponse
+	var token models.DiscordTokenResponse
 	if err := json.Unmarshal(body, &token); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid token response"})
 		return
@@ -126,10 +106,14 @@ func DiscordCallback(c *gin.Context) {
 
 	// Create JWT claims
 	claims := utils.JWTClaims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Guilds:   managedGuilds,
-		Role:     "user",
+		UserID:      user.ID,
+		Username:    user.Username,
+		AccessToken: token.AccessToken,
+		Guilds:      managedGuilds,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(4 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
 	}
 
 	jwtToken, err := utils.GenerateJWT(cfg.JWTSecret, claims)
@@ -141,11 +125,20 @@ func DiscordCallback(c *gin.Context) {
 
 	// Redirect or return token depending on frontend setup
 	// Option 1: Redirect to frontend with token
-	redirect := fmt.Sprintf("%s/login?token=%s", cfg.FrontendURL, jwtToken)
-	c.Redirect(http.StatusFound, redirect)
+	// Pick first allowed frontend URL (or fallback)
+	origin := c.Request.Header.Get("Origin")
+	frontendURL := cfg.FrontendURL[0]
 
-	// Option 2 (for API-only testing):
+	for _, allowed := range cfg.FrontendURL {
+		if allowed == origin {
+			frontendURL = origin
+			break
+		}
+	}
+
+	redirectURL := fmt.Sprintf("%s/login?token=%s", frontendURL, jwtToken)
 	// c.JSON(200, gin.H{"token": jwtToken})
+	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
 // Returns the current authenticated user (JWT-based)
@@ -155,7 +148,7 @@ func Me(c *gin.Context) {
 }
 
 // Helper: Fetch Discord user info
-func fetchDiscordUser(accessToken string) (*DiscordUser, error) {
+func fetchDiscordUser(accessToken string) (*models.DiscordUser, error) {
 	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
@@ -165,28 +158,46 @@ func fetchDiscordUser(accessToken string) (*DiscordUser, error) {
 	}
 	defer resp.Body.Close()
 
-	var user DiscordUser
+	var user models.DiscordUser
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
-// Helper: Fetch Discord guilds
-func fetchDiscordGuilds(accessToken string) ([]DiscordGuild, error) {
+func fetchDiscordGuilds(accessToken string) ([]models.DiscordGuild, error) {
 	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me/guilds", nil)
-	req.Header.Set("Authorization", "Bearer  "+accessToken)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept-Encoding", "gzip") // optional, Discord supports it
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("request error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var guilds []DiscordGuild
-	if err := json.NewDecoder(resp.Body).Decode(&guilds); err != nil {
-		return nil, err
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("discord api %d: %s", resp.StatusCode, string(b))
 	}
+
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	body, _ := io.ReadAll(reader)
+
+	var guilds []models.DiscordGuild
+	if err := json.Unmarshal(body, &guilds); err != nil {
+		return nil, fmt.Errorf("decode error: %w", err)
+	}
+
 	return guilds, nil
 }

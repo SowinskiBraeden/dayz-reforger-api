@@ -27,8 +27,11 @@ func main() {
 	}
 
 	router := gin.New()
-	router.Use(middleware.LoggingMiddleware())
-	router.Use(gin.Recovery())
+	router.Use(
+		middleware.LoggingMiddleware(),
+		middleware.CORSMiddleware(cfg),
+		gin.Recovery(),
+	)
 
 	router.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
@@ -42,6 +45,11 @@ func main() {
 			log.Fatalf("Failed to start: %v", err)
 		}
 	}()
+
+	log.Println("Registering routes...")
+	for _, r := range router.Routes() {
+		log.Printf("%s %s", r.Method, r.Path)
+	}
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)

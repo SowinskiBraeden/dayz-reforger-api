@@ -9,8 +9,14 @@ import (
 type JWTClaims struct {
 	UserID   string   `json:"user_id"`
 	Username string   `json:"username"`
-	Guilds   []string `json:"guilds,omitempty"`
-	Role     string   `json:"role"` // e.g., "user", "admin", "bot"
+	Role     string   `json:"role,omitempty"`
+	Guilds   []string `json:"guilds"` // IDs of guilds user owns/manages
+
+	// Discord OAuth tokens (used for fetching guild info)
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresIn    int64  `json:"expires_in,omitempty"`
+
 	jwt.RegisteredClaims
 }
 

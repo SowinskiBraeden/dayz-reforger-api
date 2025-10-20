@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -15,13 +16,28 @@ type Config struct {
 	ClientSecret string // Discord client secret
 	RedirectURI  string // Discord OAuth redirect URL
 	ListenAddr   string
-	FrontendURL  string // for CORS
+	FrontendURL  []string // for CORS
 }
 
 // Load loads environment variables into the Config struct.
 func Load() *Config {
 	// Load .env file only in development
 	_ = godotenv.Load()
+
+	frontendEnv := getEnv("FRONTEND_URL", "http://localhost:5173")
+
+	// Split comma-separated URLs into slice
+	var frontendURLs []string
+	for _, url := range strings.Split(frontendEnv, ",") {
+		url = strings.TrimSpace(url)
+		if url != "" {
+			frontendURLs = append(frontendURLs, url)
+		}
+	}
+
+	if len(frontendURLs) == 0 {
+		frontendURLs = []string{"http://localhost:5173"}
+	}
 
 	cfg := &Config{
 		MongoURI:     mustGetEnv("MONGO_URI"),
@@ -31,7 +47,7 @@ func Load() *Config {
 		ClientSecret: mustGetEnv("DISCORD_CLIENT_SECRET"),
 		RedirectURI:  mustGetEnv("DISCORD_REDIRECT_URI"),
 		ListenAddr:   getEnv("LISTEN_ADDR", ":8080"),
-		FrontendURL:  getEnv("FRONTEND_URL", "http://localhost:5173"),
+		FrontendURL:  frontendURLs,
 	}
 
 	log.Printf("Loaded configuration for MongoDB: %s", cfg.DatabaseName)
