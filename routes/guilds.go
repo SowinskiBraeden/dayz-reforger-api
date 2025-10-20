@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -25,7 +26,7 @@ var (
 	guildCacheMu sync.RWMutex
 	guildCache   = make(map[string]cachedGuilds)
 
-	guildFetchLock sync.Map // ✅ this is correct — defines an empty concurrent map
+	guildFetchLock sync.Map
 )
 
 type cachedGuilds struct {
@@ -52,36 +53,23 @@ func GetGuildConfig(c *gin.Context) {
 
 	err := collection.FindOne(context.TODO(), bson.M{"server.serverID": guildID}).Decode(&config)
 	if err == mongo.ErrNoDocuments {
-		c.JSON(http.StatusNotFound, gin.H{"error": "guild not found"})
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Guild not found"})
 		return
 	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Internal database error"})
 		return
+	}
+
+	// Identify request type
+	authType, _ := c.Get("authType") // set by middleware
+	isInternal := authType == "bot" || c.GetHeader("X-Internal-Key") == os.Getenv("INTERNAL_API_KEY")
+
+	// Sanitize for user-facing requests
+	if !isInternal {
+		config.Nitrado.Auth = "" // never expose raw creds
 	}
 
 	c.JSON(http.StatusOK, config)
-}
-
-func UpdateGuildConfig(c *gin.Context) {
-	guildID := c.Param("id")
-	var payload models.GuildConfig
-
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
-		return
-	}
-
-	collection := db.GetCollection("guilds")
-	filter := bson.M{"server.serverID": guildID}
-	update := bson.M{"$set": payload}
-
-	_, err := collection.UpdateOne(context.TODO(), filter, update)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // filterOwnedGuilds filters the guild list to include only those the user owns
@@ -180,4 +168,47 @@ func GetUserGuilds(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"guilds": filtered})
+}
+
+func UpdateGuildConfig(c *gin.Context) {
+	guildID := c.Param("id")
+
+	// Parse JSON body
+	var payload models.GuildConfig
+	if err := c.BindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	// Update in Mongo
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"server.serverID": guildID}
+	update := bson.M{"$set": bson.M{
+		"server": payload.Server,
+	}}
+
+	collection := db.GetCollection("guilds")
+	res, err := collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to update configuration",
+		})
+		return
+	}
+
+	if res.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "Guild not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Guild configuration updated successfully",
+	})
 }
