@@ -28,11 +28,19 @@ func RequireRole(role string) gin.HandlerFunc {
 
 func RequireGuildAccess() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		authType := c.GetString("authType")
 		guildID := c.Param("id")
 
-		claims, exists := c.Get("claims")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token claims"})
+		// Internal bot always allowed
+		if authType == "bot" {
+			c.Next()
+			return
+		}
+
+		// For users: check if this guild is in their token claims
+		claims, ok := c.Get("claims")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing claims"})
 			return
 		}
 
