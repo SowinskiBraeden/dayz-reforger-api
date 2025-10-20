@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 
-	"yourapp/utils" // adjust import path for JWTClaims
+	"github.com/SowinskiBraeden/dayz-reforger-api/utils" // adjust import path for JWTClaims
 )
 
 // rateLimiter tracks limiters per key (user/IP) and cleans them up
