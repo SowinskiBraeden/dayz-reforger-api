@@ -38,6 +38,11 @@ func main() {
 	// Register all routes (auth, guilds, etc.)
 	routes.RegisterRoutes(router, cfg)
 
+	log.Println("Registering routes...")
+	for _, r := range router.Routes() {
+		log.Printf("%s %s", r.Method, r.Path)
+	}
+
 	// Start the server
 	go func() {
 		log.Printf("Server running on %s", cfg.ListenAddr)
