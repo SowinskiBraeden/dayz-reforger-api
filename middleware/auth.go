@@ -39,7 +39,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		// --- USER AUTH ---
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
-			claims, err := utils.ValidateJWT(token, cfg.JWTSecret)
+			claims, err := utils.ValidateJWT(cfg.JWTSecret, token)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 					"error": "invalid or expired JWT",
