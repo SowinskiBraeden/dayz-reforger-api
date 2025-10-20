@@ -10,28 +10,52 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware ensures that every request has a valid JWT
+// AuthMiddleware supports both user JWTs and bot internal key.
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
+
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "missing Authorization header",
+			})
 			return
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token format"})
+		// --- BOT AUTH ---
+		if strings.HasPrefix(authHeader, "Bot ") {
+			token := strings.TrimPrefix(authHeader, "Bot ")
+			if token == cfg.InternalAPIKey {
+				c.Set("authType", "bot")
+				c.Next()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid bot API key",
+			})
 			return
 		}
 
-		claims, err := utils.ValidateJWT(cfg.JWTSecret, tokenString)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+		// --- USER AUTH ---
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			claims, err := utils.ValidateJWT(token, cfg.JWTSecret)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error": "invalid or expired JWT",
+				})
+				return
+			}
+
+			c.Set("authType", "user")
+			c.Set("claims", claims)
+			c.Next()
 			return
 		}
 
-		c.Set("claims", claims)
-		c.Next()
+		// --- UNSUPPORTED AUTH METHOD ---
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "unsupported authentication type",
+		})
 	}
 }

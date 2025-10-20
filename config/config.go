@@ -9,14 +9,15 @@ import (
 )
 
 type Config struct {
-	MongoURI     string
-	DatabaseName string
-	JWTSecret    string
-	ClientID     string // Discord client ID
-	ClientSecret string // Discord client secret
-	RedirectURI  string // Discord OAuth redirect URL
-	ListenAddr   string
-	FrontendURL  []string // for CORS
+	MongoURI       string
+	DatabaseName   string
+	JWTSecret      string
+	ClientID       string
+	ClientSecret   string
+	RedirectURI    string
+	ListenAddr     string
+	FrontendURL    []string
+	InternalAPIKey string
 }
 
 // Load loads environment variables into the Config struct.
@@ -40,14 +41,15 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		MongoURI:     mustGetEnv("MONGO_URI"),
-		DatabaseName: getEnv("MONGO_DB", "dayzReforger"),
-		JWTSecret:    mustGetEnv("JWT_SECRET"),
-		ClientID:     mustGetEnv("DISCORD_CLIENT_ID"),
-		ClientSecret: mustGetEnv("DISCORD_CLIENT_SECRET"),
-		RedirectURI:  mustGetEnv("DISCORD_REDIRECT_URI"),
-		ListenAddr:   getEnv("LISTEN_ADDR", ":8080"),
-		FrontendURL:  frontendURLs,
+		MongoURI:       mustGetEnv("MONGO_URI"),
+		DatabaseName:   getEnv("MONGO_DB", "dayzReforger"),
+		JWTSecret:      mustGetEnv("JWT_SECRET"),
+		ClientID:       mustGetEnv("DISCORD_CLIENT_ID"),
+		ClientSecret:   mustGetEnv("DISCORD_CLIENT_SECRET"),
+		RedirectURI:    mustGetEnv("DISCORD_REDIRECT_URI"),
+		ListenAddr:     getEnv("LISTEN_ADDR", ":8080"),
+		FrontendURL:    frontendURLs,
+		InternalAPIKey: mustGetEnv("INTERNAL_API_KEY"), // 👈 new env var
 	}
 
 	log.Printf("Loaded configuration for MongoDB: %s", cfg.DatabaseName)
