@@ -3,61 +3,97 @@ package middleware
 import (
 	"net/http"
 	"sync"
+	"time"
 
-	"github.com/SowinskiBraeden/dayz-reforger-api/utils"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
+
+	"github.com/SowinskiBraeden/dayz-reforger-api/utils" // adjust import path for JWTClaims
 )
 
+// rateLimiter tracks limiters per key (user/IP) and cleans them up
 type rateLimiter struct {
-	limiters map[string]*rate.Limiter
+	limiters map[string]*clientLimiter
 	mu       sync.Mutex
 	r        rate.Limit
 	b        int
 }
 
-var globalLimiter = newRateLimiter(2, 5) // 2 req/sec, burst of 5
+type clientLimiter struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+var globalLimiter = newRateLimiter(3, 8) // 3 req/sec, burst 8
 
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
-	return &rateLimiter{
-		limiters: make(map[string]*rate.Limiter),
+	rl := &rateLimiter{
+		limiters: make(map[string]*clientLimiter),
 		r:        r,
 		b:        b,
 	}
+
+	// Periodically clean up stale entries
+	go rl.cleanupLoop(10 * time.Minute)
+	return rl
 }
 
 func (rl *rateLimiter) getLimiter(key string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	limiter, exists := rl.limiters[key]
+	cl, exists := rl.limiters[key]
 	if !exists {
-		limiter = rate.NewLimiter(rl.r, rl.b)
-		rl.limiters[key] = limiter
+		cl = &clientLimiter{
+			limiter:  rate.NewLimiter(rl.r, rl.b),
+			lastSeen: time.Now(),
+		}
+		rl.limiters[key] = cl
 	}
-	return limiter
+
+	cl.lastSeen = time.Now()
+	return cl.limiter
 }
 
-// RateLimitMiddleware applies a per-user (or per-IP) limit.
+// cleanupLoop removes old limiters that haven’t been used recently
+func (rl *rateLimiter) cleanupLoop(interval time.Duration) {
+	for {
+		time.Sleep(interval)
+		rl.mu.Lock()
+		for key, cl := range rl.limiters {
+			if time.Since(cl.lastSeen) > 30*time.Minute {
+				delete(rl.limiters, key)
+			}
+		}
+		rl.mu.Unlock()
+	}
+}
+
+// RateLimitMiddleware applies rate limiting for user requests
 func RateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authType, _ := c.Get("authType")
 		if authType == "bot" {
-			c.Next() // skip for bot
+			c.Next()
 			return
 		}
 
-		key := c.ClientIP() // fallback key
+		// Default key is the client IP
+		key := c.ClientIP()
+
+		// If user authenticated, use hybrid key: userID:IP
 		if claims, exists := c.Get("claims"); exists {
-			if jwtClaims, ok := claims.(*utils.JWTClaims); ok {
-				key = jwtClaims.UserID // per-user rate limiting if logged in
+			if jwtClaims, ok := claims.(*utils.JWTClaims); ok && jwtClaims.UserID != "" {
+				key = jwtClaims.UserID + ":" + c.ClientIP()
 			}
 		}
 
+		// Get limiter for this key
 		limiter := globalLimiter.getLimiter(key)
+
 		if !limiter.Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "too many requests, slow down",
+				"error": "too many requests, please slow down",
 			})
 			return
 		}
