@@ -16,10 +16,12 @@ type Account struct {
 }
 
 type Nitrado struct {
-	UserID      string `bson:"user_id" json:"user_id"`
-	Email       string `bson:"email" json:"email"`
-	Country     string `bson:"country" json:"country"`
-	AccessToken string `bson:"access_token" json:"access_token"`
+	UserID  string `bson:"user_id" json:"user_id"`
+	Email   string `bson:"email" json:"email"`
+	Country string `bson:"country" json:"country"`
+
+	NitradoTokenResponse `bson:",inline"`
+	ExpiresAt            time.Time `bson:"expires_at" json:"expires_at"`
 
 	Status  string `bson:"Status" json:"Status"`
 	Mission string `bson:"Mission" json:"Mission"`

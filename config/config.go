@@ -22,6 +22,7 @@ type Config struct {
 	NitradoClientID     string   `env:"NITRADO_CLIENT_ID"`
 	NitradoClientSecret string   `env:"NITRADO_CLIENT_SECRET"`
 	NitradoRedirectURI  string   `env:"NITRADO_REDIRECT_URI"`
+	EncryptionKey       string   `env:"ENCRYPTION_KEY"`
 }
 
 func Load() *Config {
@@ -62,6 +63,7 @@ func Load() *Config {
 		NitradoClientID:     mustGetEnv("NITRADO_CLIENT_ID"),
 		NitradoClientSecret: mustGetEnv("NITRADO_CLIENT_SECRET"),
 		NitradoRedirectURI:  mustGetEnv("NITRADO_REDIRECT_URI"),
+		EncryptionKey:       mustGetEnv("ENCRYPTION_KEY"),
 	}
 
 	utils.LogSuccess("[Config] Configuration loaded successfully")

@@ -2,7 +2,9 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,28 +101,26 @@ func NitradoCallback(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// lifeLongToken, err := getLifeLongToken(cfg, token.AccessToken)
-		// if err != nil {
-		// 	utils.LogError("[NitradoCallback] Failed to fetch Nitrado life long token: %v", err)
-		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get life long token"})
-		// 	return
-		// }
-		// fmt.Println(lifeLongToken.ExpiresIn)
-
 		claims := c.MustGet("claims").(*utils.JWTClaims)
+
+		encryptedAccessToken, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
+		encryptedRefreshToken, _ := utils.Encrypt(token.RefreshToken, cfg.EncryptionKey)
 
 		now := time.Now()
 		collection := db.GetCollection("accounts")
 		filter := bson.M{"discord_id": claims.UserID}
 		update := bson.M{
 			"$set": bson.M{
-				"nitrado.user_id":      user.Data.User.ID,
-				"nitrado.user_email":   user.Data.User.Email,
-				"nitrado.user_country": user.Data.User.Profile.Country,
-				// "nitrado.access_token": lifeLongToken.AccessToken,
-				"nitrado.access_token": token.AccessToken,
-				"nitrado.linked_at":    now,
-				"updated_at":           now,
+				"nitrado.user_id":       user.Data.User.ID,
+				"nitrado.user_email":    user.Data.User.Email,
+				"nitrado.user_country":  user.Data.User.Profile.Country,
+				"nitrado.access_token":  encryptedAccessToken,
+				"nitrado.refresh_token": encryptedRefreshToken,
+				"nitrado.token_type":    token.TokenType,
+				"nitrado.expires_at":    time.Now().Add(time.Duration(token.ExpiresIn) * time.Second),
+				"nitrado.scope":         token.Scope,
+				"nitrado.linked_at":     now,
+				"updated_at":            now,
 			},
 		}
 
@@ -140,43 +140,6 @@ func NitradoCallback(cfg *config.Config) gin.HandlerFunc {
 
 		c.Redirect(http.StatusFound, cfg.FrontendURL[0]+"/dashboard?linked=nitrado")
 	}
-}
-
-func getLifeLongToken(cfg *config.Config, accessToken string) (*models.NitradoTokenResponse, error) {
-	utils.LogInfo("[getLifeLongToken] Requesting life-long token from Nitrado")
-
-	form := url.Values{}
-	form.Add("token", accessToken)
-	form.Add("client_id", cfg.NitradoClientID)
-	form.Add("client_secret", cfg.NitradoClientSecret)
-	form.Add("description", "Access token for DayZ Reforger Services")
-	form.Add("scope", "service user_info long_life_token")
-
-	req, _ := http.NewRequest("POST", "https://oauth.nitrado.net/token/long_life_token", bytes.NewBufferString(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		utils.LogError("[getLifeLongToken] Request error: %v", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		utils.LogError("[getLifeLongToken] Nitrado API %d: %d", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("nitrado api %d: %s", resp.StatusCode, string(body))
-	}
-
-	var token models.NitradoTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		utils.LogError("[getLifeLongToken] Decode error: %v", err)
-		return nil, err
-	}
-
-	utils.LogSuccess("[getLifeLongToken] Successfully got life long token for nitrado")
-	return &token, nil
 }
 
 // Fetch Nitrado user info
@@ -207,4 +170,82 @@ func fetchNitradoUser(accessToken string) (*models.NitradoUserResponse, error) {
 
 	utils.LogSuccess("[fetchNitradoUser] Successfully decoded Nitrado user %s (%s)", user.Data.User.Username, user.Data.User.ID)
 	return &user, nil
+}
+
+func EnsureValidNitradoToken(acc *models.Account, cfg *config.Config) (string, error) {
+	if time.Now().Before(acc.Nitrado.ExpiresAt) {
+		decryptedToken, _ := utils.Decrypt(acc.Nitrado.AccessToken, cfg.EncryptionKey)
+		return decryptedToken, nil
+	}
+
+	form := url.Values{}
+	form.Add("client_id", cfg.NitradoClientID)
+	form.Add("client_secret", cfg.NitradoClientSecret)
+	form.Add("grant_type", "refresh_token")
+	form.Add("refresh_token", acc.Nitrado.RefreshToken)
+
+	req, err := http.NewRequest("POST", "https://oauth.nitrado.net/oauth/v2/token", bytes.NewBufferString(form.Encode()))
+	if err != nil {
+		utils.LogError("[EnsureValidNitradoToken] Failed to create token request: %v", err)
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		utils.LogError("[EnsureValidNitradoToken] Failed to reach Nitrado API: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", errors.New(string(body))
+	}
+
+	utils.LogSuccess("[EnsureValidNitradoToken] Successfully refreshed token")
+
+	var token models.NitradoTokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		utils.LogError("[EnsureValidNitradoToken] Invalid token response: %v", err)
+		return "", err
+	}
+
+	// re-encrypt + save
+	encryptedAccessToken, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
+	encryptedRefreshToken, _ := utils.Encrypt(token.RefreshToken, cfg.EncryptionKey)
+
+	acc.Nitrado.AccessToken = encryptedAccessToken
+	acc.Nitrado.RefreshToken = encryptedRefreshToken
+	acc.Nitrado.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+	acc.UpdatedAt = time.Now()
+
+	// update account
+	now := time.Now()
+	collection := db.GetCollection("accounts")
+	filter := bson.M{"discord_id": acc.DiscordID}
+	update := bson.M{
+		"$set": bson.M{
+			"nitrado.access_token":  encryptedAccessToken,
+			"nitrado.refresh_token": encryptedRefreshToken,
+			"nitrado.token_type":    token.TokenType,
+			"nitrado.expires_at":    time.Now().Add(time.Duration(token.ExpiresIn) * time.Second),
+			"nitrado.scope":         token.Scope,
+			"updated_at":            now,
+		},
+	}
+
+	res, err := collection.UpdateOne(context.TODO(), filter, update)
+	if err != nil {
+		utils.LogError("[EnsureValidNitradoToken] Failed to add nitrado credentials to account")
+		return "", err
+	}
+
+	if res.MatchedCount == 0 {
+		utils.LogError("[EnsureValidNitradoToken] Account not found - could not insert nitrado credentials")
+		return "", errors.New("could not find account to update")
+	}
+
+	return token.AccessToken, nil
 }
