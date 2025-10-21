@@ -28,8 +28,8 @@ func DiscordLogin(c *gin.Context) {
 	utils.LogInfo("Initiating Discord OAuth login redirect")
 
 	params := url.Values{}
-	params.Add("client_id", cfg.ClientID)
-	params.Add("redirect_uri", cfg.RedirectURI)
+	params.Add("client_id", cfg.DiscordClientID)
+	params.Add("redirect_uri", cfg.DiscordRedirectURI)
 	params.Add("response_type", "code")
 	params.Add("scope", "identify guilds email")
 
@@ -54,11 +54,11 @@ func DiscordCallback(c *gin.Context) {
 	utils.LogInfo("[DiscordCallback] Exchanging authorization code for access token")
 
 	form := url.Values{}
-	form.Add("client_id", cfg.ClientID)
-	form.Add("client_secret", cfg.ClientSecret)
+	form.Add("client_id", cfg.DiscordClientID)
+	form.Add("client_secret", cfg.DiscordClientSecret)
 	form.Add("grant_type", "authorization_code")
 	form.Add("code", code)
-	form.Add("redirect_uri", cfg.RedirectURI)
+	form.Add("redirect_uri", cfg.DiscordRedirectURI)
 	form.Add("scope", "identify guilds email")
 
 	req, err := http.NewRequest("POST", "https://discord.com/api/oauth2/token", bytes.NewBufferString(form.Encode()))

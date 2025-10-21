@@ -10,15 +10,18 @@ import (
 
 // Config holds all environment configuration values
 type Config struct {
-	MongoURI       string
-	DatabaseName   string
-	JWTSecret      string
-	ClientID       string
-	ClientSecret   string
-	RedirectURI    string
-	ListenAddr     string
-	FrontendURL    []string
-	InternalAPIKey string
+	MongoURI            string   `env:"MONGO_URI"`
+	DatabaseName        string   `env:"MONGO_DB"`
+	JWTSecret           string   `env:"JWT_SECRET"`
+	DiscordClientID     string   `env:"DISCORD_CLIENT_ID"`
+	DiscordClientSecret string   `env:"DISCORD_CLIENT_SECRET"`
+	DiscordRedirectURI  string   `env:"DISCORD_REDIRECT_URI"`
+	ListenAddr          string   `env:"LISTEN_ADDR"`
+	FrontendURL         []string `env:"FRONTEND_URL"`
+	InternalAPIKey      string   `env:"INTERNAL_API_KEY"`
+	NitradoClientID     string   `env:"NITRADO_CLIENT_ID"`
+	NitradoClientSecret string   `env:"NITRADO_CLIENT_SECRET"`
+	NitradoRedirectURI  string   `env:"NITRADO_REDIRECT_URI"`
 }
 
 func Load() *Config {
@@ -47,15 +50,18 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		MongoURI:       mustGetEnv("MONGO_URI"),
-		DatabaseName:   getEnv("MONGO_DB", "dayzReforger"),
-		JWTSecret:      mustGetEnv("JWT_SECRET"),
-		ClientID:       mustGetEnv("DISCORD_CLIENT_ID"),
-		ClientSecret:   mustGetEnv("DISCORD_CLIENT_SECRET"),
-		RedirectURI:    mustGetEnv("DISCORD_REDIRECT_URI"),
-		ListenAddr:     getEnv("LISTEN_ADDR", ":8080"),
-		FrontendURL:    frontendURLs,
-		InternalAPIKey: mustGetEnv("INTERNAL_API_KEY"),
+		MongoURI:            mustGetEnv("MONGO_URI"),
+		DatabaseName:        getEnv("MONGO_DB", "dayzReforger"),
+		JWTSecret:           mustGetEnv("JWT_SECRET"),
+		DiscordClientID:     mustGetEnv("DISCORD_CLIENT_ID"),
+		DiscordClientSecret: mustGetEnv("DISCORD_CLIENT_SECRET"),
+		DiscordRedirectURI:  mustGetEnv("DISCORD_REDIRECT_URI"),
+		ListenAddr:          getEnv("LISTEN_ADDR", ":8080"),
+		FrontendURL:         frontendURLs,
+		InternalAPIKey:      mustGetEnv("INTERNAL_API_KEY"),
+		NitradoClientID:     mustGetEnv("NITRADO_CLIENT_ID"),
+		NitradoClientSecret: mustGetEnv("NITRADO_CLIENT_SECRET"),
+		NitradoRedirectURI:  mustGetEnv("NITRADO_REDIRECT_URI"),
 	}
 
 	utils.LogSuccess("[Config] Configuration loaded successfully")
