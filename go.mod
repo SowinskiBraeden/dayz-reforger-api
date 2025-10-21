@@ -1,6 +1,6 @@
 module github.com/SowinskiBraeden/dayz-reforger-api
 
-go 1.24.5
+go 1.25.3
 
 require (
 	github.com/gin-gonic/gin v1.11.0

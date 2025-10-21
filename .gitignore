@@ -1,4 +1,5 @@
 # Go builds
+/tmp/
 /bin/
 /build/
 /dist/
