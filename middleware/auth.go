@@ -11,8 +11,10 @@ import (
 )
 
 // AuthMiddleware validates both user JWTs and bot internal API keys.
-func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		cfg := c.MustGet("config").(*config.Config)
+
 		authHeader := c.GetHeader("Authorization")
 
 		if authHeader == "" {

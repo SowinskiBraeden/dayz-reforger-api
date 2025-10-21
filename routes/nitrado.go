@@ -19,127 +19,125 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func NitradoLogin(cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func NitradoLogin(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
 
-		params := url.Values{}
-		params.Add("client_id", cfg.NitradoClientID)
-		params.Add("redirect_uri", cfg.NitradoRedirectURI)
-		params.Add("response_type", "code")
-		params.Add("scope", "service user_info")
-		params.Add("state", cfg.FrontendURL[0])
+	params := url.Values{}
+	params.Add("client_id", cfg.NitradoClientID)
+	params.Add("redirect_uri", cfg.NitradoRedirectURI)
+	params.Add("response_type", "code")
+	params.Add("scope", "service user_info")
+	params.Add("state", cfg.FrontendURL[0])
 
-		redirectURL := fmt.Sprintf("https://oauth.nitrado.net/oauth/v2/auth?%s", params.Encode())
-		utils.LogSuccess("Redirecting user to Nitrado OAuth: %s", redirectURL)
-		c.Redirect(http.StatusFound, redirectURL)
-	}
+	redirectURL := fmt.Sprintf("https://oauth.nitrado.net/oauth/v2/auth?%s", params.Encode())
+	utils.LogSuccess("Redirecting user to Nitrado OAuth: %s", redirectURL)
+	c.Redirect(http.StatusFound, redirectURL)
 }
 
-func NitradoCallback(cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		stateFromURL := c.Query("state")
-		stateCookie, _ := c.Cookie("oauth_state")
+func NitradoCallback(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
+	stateFromURL := c.Query("state")
+	stateCookie, _ := c.Cookie("oauth_state")
 
-		if stateFromURL == "" || stateFromURL != stateCookie {
-			utils.LogError("[NitradoCallback] Invalid OAuth state, potential malicious activity ")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OAuth state"})
-			return
-		}
-
-		code := c.Query("code")
-		if code == "" {
-			utils.LogError("[NitradoCallback] Missing authorization code in query")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
-			return
-		}
-
-		utils.LogInfo("[NitradoCallback] Exchanging authorizatoin code for access token")
-
-		form := url.Values{}
-		form.Add("client_id", cfg.NitradoClientID)
-		form.Add("client_secret", cfg.NitradoClientSecret)
-		form.Add("grant_type", "authorization_code")
-		form.Add("code", code)
-
-		req, err := http.NewRequest("POST", "https://oauth.nitrado.net/oauth/v2/token", bytes.NewBufferString(form.Encode()))
-		if err != nil {
-			utils.LogError("[NitradoCallback] Failed to create token request: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
-			return
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			utils.LogError("[NitradoCallback] Failed to reach Nitrado API: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reach nitrado"})
-			return
-		}
-		defer resp.Body.Close()
-
-		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			c.JSON(http.StatusBadRequest, gin.H{"error": string(body)})
-			return
-		}
-
-		utils.LogSuccess("[NitradoCallback] Successfully exchanged code for token")
-
-		var token models.NitradoTokenResponse
-		if err := json.Unmarshal(body, &token); err != nil {
-			utils.LogError("[NitradoCallback] Invalid token response: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid token response"})
-			return
-		}
-
-		// Fetch user info
-		user, err := fetchNitradoUser(token.AccessToken)
-		if err != nil {
-			utils.LogError("[NitradoCallback] Failed to fetch Nitrado user: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user"})
-			return
-		}
-
-		claims := c.MustGet("claims").(*utils.JWTClaims)
-
-		encryptedAccessToken, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
-		encryptedRefreshToken, _ := utils.Encrypt(token.RefreshToken, cfg.EncryptionKey)
-
-		now := time.Now()
-		collection := db.GetCollection("accounts")
-		filter := bson.M{"discord_id": claims.UserID}
-		update := bson.M{
-			"$set": bson.M{
-				"nitrado.user_id":       user.Data.User.ID,
-				"nitrado.user_email":    user.Data.User.Email,
-				"nitrado.user_country":  user.Data.User.Profile.Country,
-				"nitrado.access_token":  encryptedAccessToken,
-				"nitrado.refresh_token": encryptedRefreshToken,
-				"nitrado.token_type":    token.TokenType,
-				"nitrado.expires_at":    time.Now().Add(time.Duration(token.ExpiresIn) * time.Second),
-				"nitrado.scope":         token.Scope,
-				"nitrado.linked_at":     now,
-				"updated_at":            now,
-			},
-		}
-
-		res, err := collection.UpdateOne(c, filter, update)
-		if err != nil {
-			utils.LogError("[NitradoCallback] Failed to add nitrado credentials to account")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add nitrado credentials to account"})
-			return
-		}
-
-		if res.MatchedCount == 0 {
-			utils.LogError("[NitradoCallback] Account not found - could not insert nitrado credentials")
-			c.JSON(http.StatusForbidden, gin.H{"error": "account not found - login first"})
-			return
-		}
-		utils.LogSuccess("[NitradoCallback] Account record updated for user %s", claims.UserID)
-
-		c.Redirect(http.StatusFound, cfg.FrontendURL[0]+"/dashboard?linked=nitrado")
+	if stateFromURL == "" || stateFromURL != stateCookie {
+		utils.LogError("[NitradoCallback] Invalid OAuth state, potential malicious activity ")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OAuth state"})
+		return
 	}
+
+	code := c.Query("code")
+	if code == "" {
+		utils.LogError("[NitradoCallback] Missing authorization code in query")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code"})
+		return
+	}
+
+	utils.LogInfo("[NitradoCallback] Exchanging authorizatoin code for access token")
+
+	form := url.Values{}
+	form.Add("client_id", cfg.NitradoClientID)
+	form.Add("client_secret", cfg.NitradoClientSecret)
+	form.Add("grant_type", "authorization_code")
+	form.Add("code", code)
+
+	req, err := http.NewRequest("POST", "https://oauth.nitrado.net/oauth/v2/token", bytes.NewBufferString(form.Encode()))
+	if err != nil {
+		utils.LogError("[NitradoCallback] Failed to create token request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		utils.LogError("[NitradoCallback] Failed to reach Nitrado API: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reach nitrado"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusBadRequest, gin.H{"error": string(body)})
+		return
+	}
+
+	utils.LogSuccess("[NitradoCallback] Successfully exchanged code for token")
+
+	var token models.NitradoTokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		utils.LogError("[NitradoCallback] Invalid token response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid token response"})
+		return
+	}
+
+	// Fetch user info
+	user, err := fetchNitradoUser(token.AccessToken)
+	if err != nil {
+		utils.LogError("[NitradoCallback] Failed to fetch Nitrado user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user"})
+		return
+	}
+
+	claims := c.MustGet("claims").(*utils.JWTClaims)
+
+	encryptedAccessToken, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
+	encryptedRefreshToken, _ := utils.Encrypt(token.RefreshToken, cfg.EncryptionKey)
+
+	now := time.Now()
+	collection := db.GetCollection("accounts")
+	filter := bson.M{"discord_id": claims.UserID}
+	update := bson.M{
+		"$set": bson.M{
+			"nitrado.user_id":       user.Data.User.ID,
+			"nitrado.user_email":    user.Data.User.Email,
+			"nitrado.user_country":  user.Data.User.Profile.Country,
+			"nitrado.access_token":  encryptedAccessToken,
+			"nitrado.refresh_token": encryptedRefreshToken,
+			"nitrado.token_type":    token.TokenType,
+			"nitrado.expires_at":    time.Now().Add(time.Duration(token.ExpiresIn) * time.Second),
+			"nitrado.scope":         token.Scope,
+			"nitrado.linked_at":     now,
+			"updated_at":            now,
+		},
+	}
+
+	res, err := collection.UpdateOne(c, filter, update)
+	if err != nil {
+		utils.LogError("[NitradoCallback] Failed to add nitrado credentials to account")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add nitrado credentials to account"})
+		return
+	}
+
+	if res.MatchedCount == 0 {
+		utils.LogError("[NitradoCallback] Account not found - could not insert nitrado credentials")
+		c.JSON(http.StatusForbidden, gin.H{"error": "account not found - login first"})
+		return
+	}
+	utils.LogSuccess("[NitradoCallback] Account record updated for user %s", claims.UserID)
+
+	c.Redirect(http.StatusFound, cfg.FrontendURL[0]+"/dashboard?linked=nitrado")
 }
 
 // Fetch Nitrado user info

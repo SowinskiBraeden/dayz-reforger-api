@@ -4,6 +4,8 @@ import (
 	"github.com/SowinskiBraeden/dayz-reforger-api/config"
 	"github.com/SowinskiBraeden/dayz-reforger-api/middleware"
 
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,16 +18,20 @@ func RegisterRoutes(router *gin.Engine, cfg *config.Config) {
 		c.Next()
 	})
 
+	router.GET("/api/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "online"})
+	})
+
 	// Public auth routes
 	router.GET("/auth/discord/login", DiscordLogin)
 	router.GET("/auth/discord/callback", DiscordCallback)
-	router.GET("/auth/nitrado/login", middleware.AuthMiddleware(cfg), NitradoLogin(cfg))
-	router.GET("/auth/nitrado/callback", middleware.AuthMiddleware(cfg), NitradoCallback(cfg))
+	router.GET("/auth/nitrado/login", middleware.AuthMiddleware(), NitradoLogin)
+	router.GET("/auth/nitrado/callback", middleware.AuthMiddleware(), NitradoCallback)
 
 	// Protected API group
 	api := router.Group("/api")
 	api.Use(
-		middleware.AuthMiddleware(cfg),
+		middleware.AuthMiddleware(),
 		middleware.RateLimitMiddleware(),
 	)
 
