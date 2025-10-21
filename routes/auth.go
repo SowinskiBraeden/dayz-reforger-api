@@ -120,22 +120,47 @@ func DiscordCallback(c *gin.Context) {
 		}
 	}
 
-	now := time.Now()
 	collection := db.GetCollection("accounts")
-	filter := bson.M{"discord_id": user.ID}
-	update := bson.M{
-		"$set": bson.M{
-			"username":   user.Username,
-			"email":      user.Email,
-			"avatar":     user.Avatar,
-			"last_login": now,
-			"updated_at": now,
-		},
-		"$setOnInsert": bson.M{"created_at": now},
-	}
-	opts := options.Update().SetUpsert(true)
+	now := time.Now()
 
-	if _, err := collection.UpdateOne(c, filter, update, opts); err != nil {
+	subscription := models.Subscription{
+		Plan:      "free",
+		AutoRenew: false,
+		ExpiresAt: nil,
+		RenewsAt:  nil,
+		UpdatedAt: now,
+	}
+
+	instances := models.InstanceAddon{
+		BaseLimit:      1,
+		ExtraInstances: 0,
+		TotalLimit:     1,
+		AutoRenew:      false,
+		ExpiresAt:      nil,
+		RenewsAt:       nil,
+		UpdatedAt:      now,
+	}
+
+	_, err = collection.UpdateOne(
+		c,
+		bson.M{"discord_id": user.ID}, // filter by Discord user
+		bson.M{
+			"$set": bson.M{
+				"username":   user.Username,
+				"email":      user.Email,
+				"avatar":     user.Avatar,
+				"last_login": now,
+				"updated_at": now,
+			},
+			"$setOnInsert": bson.M{ // only if new user
+				"created_at":      now,
+				"subscription":    subscription,
+				"instance_addons": instances,
+			},
+		},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
 		utils.LogError("[DiscordCallback] Failed to upsert account for user %s: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert account"})
 		return
