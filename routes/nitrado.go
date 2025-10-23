@@ -167,7 +167,7 @@ func NitradoCallback(c *gin.Context) {
 
 	utils.LogSuccess("[NitradoCallback] Linked Nitrado account for user %s", claims.UserID)
 
-	redirectURL := fmt.Sprintf("%s/login?token=%s", cfg.FrontendURL[0], userToken)
+	redirectURL := fmt.Sprintf("%s/dashboard?linked=true", cfg.FrontendURL[0])
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
