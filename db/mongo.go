@@ -25,10 +25,16 @@ func Connect(uri string, dbName string) {
 		panic(err)
 	}
 
-	// Ping the database to verify the connection
-	if err := c.Ping(ctx, nil); err != nil {
-		utils.LogError("[MongoDB] Ping failed: %v", err)
-		panic(err)
+	// Force authentication by performing a read on the target DB
+	testCollection := c.Database(dbName).Collection("auth_test")
+	if err := testCollection.FindOne(ctx, map[string]any{}).Err(); err != nil {
+		if err == mongo.ErrNoDocuments {
+			// This means we successfully authenticated, just no documents
+			utils.LogSuccess("[MongoDB] Authentication succeeded for database: %s", dbName)
+		} else {
+			utils.LogError("[MongoDB] Authentication failed: %v", err)
+			panic(err)
+		}
 	}
 
 	client = c
