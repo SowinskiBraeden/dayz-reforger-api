@@ -66,81 +66,100 @@ func GetGuildConfig(c *gin.Context) {
 }
 
 func GetUserGuilds(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
 	claims := c.MustGet("claims").(*utils.JWTClaims)
 	userID := claims.UserID
-	utils.LogInfo("Fetching user guilds for userID=%s", userID)
+	utils.LogInfo("[GetUserGuilds] Fetching user guilds for userID=%s", userID)
 
-	// Check cache
+	// Step 1. Check cache first
 	if cached, ok := guildCache[userID]; ok && time.Now().Before(cached.expiry) {
-		utils.LogInfo("Cache hit for userID=%s", userID)
+		utils.LogInfo("[GetUserGuilds] Cache hit for userID=%s", userID)
 		c.JSON(http.StatusOK, gin.H{"guilds": cached.guilds})
 		return
 	}
 
-	// Lock per-user to prevent multiple concurrent Discord requests
+	// Step 2. Per-user lock to prevent concurrent Discord requests
 	lockIface, _ := guildFetchLock.LoadOrStore(userID, &sync.Mutex{})
 	lock := lockIface.(*sync.Mutex)
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Double-check cache after acquiring lock
+	// Step 3. Re-check cache after acquiring lock
 	if cached, ok := guildCache[userID]; ok && time.Now().Before(cached.expiry) {
-		utils.LogInfo("Cache re-check hit for userID=%s", userID)
+		utils.LogInfo("[GetUserGuilds] Cache re-check hit for userID=%s", userID)
 		c.JSON(http.StatusOK, gin.H{"guilds": cached.guilds})
 		return
 	}
 
-	// Anti-burst cooldown: if last fetch was very recent
-	if cached, ok := guildCache[userID]; ok && time.Since(cached.expiry.Add(-5*time.Minute)) < 5*time.Second {
-		utils.LogWarn("Skipping Discord call due to cooldown for userID=%s", userID)
-		c.JSON(http.StatusOK, gin.H{"guilds": cached.guilds})
+	// Step 4. Fetch user's account from MongoDB
+	collection := db.GetCollection("accounts")
+	var account models.Account
+	if err := collection.FindOne(c, bson.M{"discord_id": userID}).Decode(&account); err != nil {
+		utils.LogError("[GetUserGuilds] Account not found for userID=%s: %v", userID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 		return
 	}
 
-	utils.LogInfo("Fetching guilds from Discord API for userID=%s", userID)
+	// Step 5. Decrypt Discord access token
+	accessToken, err := utils.Decrypt(account.Discord.AccessToken, cfg.EncryptionKey)
+	if err != nil {
+		utils.LogError("[GetUserGuilds] Failed to decrypt Discord access token for userID=%s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt access token"})
+		return
+	}
 
-	// Fetch from Discord API
+	// Step 6. Check token expiry (optional auto-refresh could go here)
+	if time.Now().After(account.Discord.ExpiresAt) {
+		utils.LogWarn("[GetUserGuilds] Discord access token expired for userID=%s", userID)
+		// TODO: Implement auto-refresh using refresh_token
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "discord token expired"})
+		return
+	}
+
+	// Step 7. Fetch from Discord API
 	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me/guilds", nil)
-	req.Header.Set("Authorization", "Bearer "+claims.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	client := &http.Client{Timeout: 10 * time.Second}
+
 	resp, err := client.Do(req)
 	if err != nil {
-		utils.LogError("Failed to reach Discord API for userID=%s: %v", userID, err)
+		utils.LogError("[GetUserGuilds] Failed to reach Discord API for userID=%s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch guilds"})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		utils.LogWarn("Rate limited by Discord for userID=%s", userID)
+		utils.LogWarn("[GetUserGuilds] Rate limited by Discord for userID=%s", userID)
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limited by Discord"})
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		utils.LogError("Discord API returned %d for userID=%s: %s", resp.StatusCode, userID, string(body))
-		c.JSON(resp.StatusCode, gin.H{"error": string(body)})
+		utils.LogError("[GetUserGuilds] Discord API returned %d for userID=%s: %s", resp.StatusCode, userID, string(body))
+		c.JSON(resp.StatusCode, gin.H{"error": "discord API error"})
 		return
 	}
 
+	// Step 8. Decode and filter guilds
 	var guilds []models.DiscordGuild
 	if err := json.NewDecoder(resp.Body).Decode(&guilds); err != nil {
-		utils.LogError("Failed to decode Discord guild list for userID=%s: %v", userID, err)
+		utils.LogError("[GetUserGuilds] Failed to decode guild list for userID=%s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode guild list"})
 		return
 	}
 
 	filtered := filterOwnedGuilds(guilds)
-	utils.LogInfo("Fetched %d guilds (filtered to %d) for userID=%s", len(guilds), len(filtered), userID)
+	utils.LogInfo("[GetUserGuilds] Fetched %d guilds (filtered %d) for userID=%s", len(guilds), len(filtered), userID)
 
-	// Cache for 5 minutes
+	// Step 9. Cache results for 5 minutes
 	guildCache[userID] = cachedGuilds{
 		guilds: filtered,
 		expiry: time.Now().Add(5 * time.Minute),
 	}
 
-	utils.LogSuccess("Guilds successfully cached for userID=%s", userID)
+	utils.LogSuccess("[GetUserGuilds] Guilds successfully cached for userID=%s", userID)
 	c.JSON(http.StatusOK, gin.H{"guilds": filtered})
 }
 

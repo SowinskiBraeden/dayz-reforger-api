@@ -25,15 +25,12 @@ func RegisterRoutes(router *gin.Engine, cfg *config.Config) {
 	// Public auth routes
 	router.GET("/auth/discord/login", DiscordLogin)
 	router.GET("/auth/discord/callback", DiscordCallback)
-	router.GET("/auth/nitrado/login", middleware.AuthMiddleware(), NitradoLogin)
-	router.GET("/auth/nitrado/callback", middleware.AuthMiddleware(), NitradoCallback)
+	router.GET("/auth/nitrado/login", NitradoLogin)
+	router.GET("/auth/nitrado/callback", NitradoCallback)
 
 	// Protected API group
 	api := router.Group("/api")
-	api.Use(
-		middleware.AuthMiddleware(),
-		middleware.RateLimitMiddleware(),
-	)
+	api.Use(middleware.AuthMiddleware())
 
 	// Auth routes (protected)
 	api.GET("/auth/me", Me)

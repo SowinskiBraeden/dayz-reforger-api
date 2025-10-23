@@ -32,7 +32,7 @@ func GenerateJWT(secret string, claims JWTClaims) (string, error) {
 }
 
 // ValidateJWT parses and validates a JWT token string
-func ValidateJWT(secret, tokenString string) (*JWTClaims, error) {
+func ValidateJWT(tokenString, secret string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	})

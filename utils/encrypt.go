@@ -9,15 +9,20 @@ import (
 	"io"
 )
 
-// Encrypt encrypts plaintext using AES-256-GCM.
-// The key must be exactly 32 bytes (256 bits).
+// Encrypt plaintext using AES-256-GCM.
+// The key must be a base64-encoded 32-byte value (44 characters in base64).
 func Encrypt(plaintext, key string) (string, error) {
 	if key == "" {
 		return "", errors.New("missing encryption key")
 	}
-	k := []byte(key)
+
+	// Decode the base64 key into 32 raw bytes
+	k, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		return "", errors.New("invalid base64 encryption key")
+	}
 	if len(k) != 32 {
-		return "", errors.New("encryption key must be 32 bytes")
+		return "", errors.New("encryption key must be 32 bytes after base64 decoding")
 	}
 
 	block, err := aes.NewCipher(k)
@@ -39,14 +44,19 @@ func Encrypt(plaintext, key string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// Decrypt decrypts ciphertext using AES-256-GCM.
+// Decrypt ciphertext using AES-256-GCM.
 func Decrypt(ciphertext, key string) (string, error) {
 	if key == "" {
 		return "", errors.New("missing decryption key")
 	}
-	k := []byte(key)
+
+	// Decode the base64 key into raw bytes
+	k, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		return "", errors.New("invalid base64 decryption key")
+	}
 	if len(k) != 32 {
-		return "", errors.New("decryption key must be 32 bytes")
+		return "", errors.New("decryption key must be 32 bytes after base64 decoding")
 	}
 
 	data, err := base64.StdEncoding.DecodeString(ciphertext)

@@ -21,7 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Redirects user to Discord login
+// Redirect user to Discord login
 func DiscordLogin(c *gin.Context) {
 	cfg := c.MustGet("config").(*config.Config)
 
@@ -38,12 +38,10 @@ func DiscordLogin(c *gin.Context) {
 	c.Redirect(http.StatusFound, redirectURL)
 }
 
-// Handles Discord callback, exchanges code for token, issues JWT
+// Handle Discord OAuth callback
 func DiscordCallback(c *gin.Context) {
 	cfg := c.MustGet("config").(*config.Config)
 	code := c.Query("code")
-
-	utils.LogInfo("Handling Discord callback")
 
 	if code == "" {
 		utils.LogError("[DiscordCallback] Missing authorization code in query")
@@ -51,7 +49,7 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	utils.LogInfo("[DiscordCallback] Exchanging authorization code for access token")
+	utils.LogInfo("[DiscordCallback] Exchanging code for access token")
 
 	form := url.Values{}
 	form.Add("client_id", cfg.DiscordClientID)
@@ -59,7 +57,6 @@ func DiscordCallback(c *gin.Context) {
 	form.Add("grant_type", "authorization_code")
 	form.Add("code", code)
 	form.Add("redirect_uri", cfg.DiscordRedirectURI)
-	form.Add("scope", "identify guilds email")
 
 	req, err := http.NewRequest("POST", "https://discord.com/api/oauth2/token", bytes.NewBufferString(form.Encode()))
 	if err != nil {
@@ -71,20 +68,18 @@ func DiscordCallback(c *gin.Context) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		utils.LogError("[DiscordCallback] Failed to reach Discord API: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reach discord"})
+		utils.LogError("[DiscordCallback] Failed to reach Discord: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "discord request failed"})
 		return
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		utils.LogError("[DiscordCallback] Discord token exchange failed: status=%d, body=%s", resp.StatusCode, string(body))
-		c.JSON(resp.StatusCode, gin.H{"error": "discord token exchange failed", "body": string(body)})
+	if resp.StatusCode != http.StatusOK {
+		utils.LogError("[DiscordCallback] Discord token exchange failed: %s", string(body))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "discord token exchange failed"})
 		return
 	}
-
-	utils.LogSuccess("[DiscordCallback] Successfully exchanged code for token")
 
 	var token models.DiscordTokenResponse
 	if err := json.Unmarshal(body, &token); err != nil {
@@ -93,11 +88,11 @@ func DiscordCallback(c *gin.Context) {
 		return
 	}
 
-	// Fetch user info
+	// Fetch user info from Discord
 	user, err := fetchDiscordUser(token.AccessToken)
 	if err != nil {
 		utils.LogError("[DiscordCallback] Failed to fetch Discord user: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get discord user"})
 		return
 	}
 
@@ -111,85 +106,84 @@ func DiscordCallback(c *gin.Context) {
 		utils.LogInfo("[DiscordCallback] Retrieved %d guilds for user %s", len(guilds), user.ID)
 	}
 
-	// Determine managed guilds
-	var managedGuilds []string
-	const ManageGuildPerm = 1 << 5 // 0x20 (bit 5)
-	for _, g := range guilds {
-		if g.Owner || (g.Permissions&ManageGuildPerm) != 0 {
-			managedGuilds = append(managedGuilds, g.ID)
-		}
-	}
+	utils.LogInfo("[DiscordCallback] Retrieved %d guilds for %s", len(guilds), user.ID)
 
+	// Upsert account record in Mongo
 	collection := db.GetCollection("accounts")
 	now := time.Now()
 
-	subscription := models.Subscription{
-		Plan:      "free",
-		AutoRenew: false,
-		ExpiresAt: nil,
-		RenewsAt:  nil,
-		UpdatedAt: now,
-	}
+	// Encrypt the Discord access token
+	encAccess, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
+	encRefresh, _ := utils.Encrypt(token.RefreshToken, cfg.EncryptionKey)
 
-	instances := models.InstanceAddon{
-		BaseLimit:      1,
-		ExtraInstances: 0,
-		TotalLimit:     1,
-		AutoRenew:      false,
-		ExpiresAt:      nil,
-		RenewsAt:       nil,
-		UpdatedAt:      now,
+	update := bson.M{
+		"$set": bson.M{
+			"username":              user.Username,
+			"email":                 user.Email,
+			"avatar":                user.Avatar,
+			"discord.access_token":  encAccess,
+			"discord.refresh_token": encRefresh,
+			"discord.expires_at":    now.Add(time.Duration(token.ExpiresIn) * time.Second),
+			"discord.linked_at":     now,
+			"last_login":            now,
+			"updated_at":            now,
+		},
+		"$setOnInsert": bson.M{
+			"discord_id": user.ID,
+			"created_at": now,
+			"subscription": models.Subscription{
+				Plan:      "free",
+				AutoRenew: false,
+				ExpiresAt: nil,
+				RenewsAt:  nil,
+				UpdatedAt: now,
+			},
+			"instance_addons": models.InstanceAddon{
+				BaseLimit:      1,
+				ExtraInstances: 0,
+				TotalLimit:     1,
+				AutoRenew:      false,
+				ExpiresAt:      nil,
+				RenewsAt:       nil,
+				UpdatedAt:      now,
+			},
+		},
 	}
 
 	_, err = collection.UpdateOne(
 		c,
-		bson.M{"discord_id": user.ID}, // filter by Discord user
-		bson.M{
-			"$set": bson.M{
-				"username":   user.Username,
-				"email":      user.Email,
-				"avatar":     user.Avatar,
-				"last_login": now,
-				"updated_at": now,
-			},
-			"$setOnInsert": bson.M{ // only if new user
-				"created_at":      now,
-				"subscription":    subscription,
-				"instance_addons": instances,
-			},
-		},
+		bson.M{"discord_id": user.ID},
+		update,
 		options.Update().SetUpsert(true),
 	)
 	if err != nil {
-		utils.LogError("[DiscordCallback] Failed to upsert account for user %s: %v", user.ID, err)
+		utils.LogError("[DiscordCallback] Failed to upsert account: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert account"})
 		return
 	}
 
-	utils.LogSuccess("[DiscordCallback] Account record upserted for user %s", user.ID)
+	utils.LogSuccess("[DiscordCallback] Account successfully upserted for %s", user.ID)
 
-	// Create JWT
+	// Generate minimal JWT
 	claims := utils.JWTClaims{
-		UserID:      user.ID,
-		Username:    user.Username,
-		AccessToken: token.AccessToken,
-		Guilds:      managedGuilds,
+		UserID:   user.ID,
+		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(4 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(6 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
 	jwtToken, err := utils.GenerateJWT(cfg.JWTSecret, claims)
 	if err != nil {
-		utils.LogError("[DiscordCallback] Failed to issue JWT for user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue jwt"})
+		utils.LogError("[DiscordCallback] Failed to issue JWT: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jwt generation failed"})
 		return
 	}
 
-	utils.LogSuccess("[DiscordCallback] JWT successfully generated for user %s", user.ID)
+	utils.LogSuccess("[DiscordCallback] Issued new JWT for user %s", user.ID)
 
-	// Redirect or return token depending on frontend setup
+	// Redirect to frontend with token
 	origin := c.Request.Header.Get("Origin")
 	frontendURL := cfg.FrontendURL[0]
 	for _, allowed := range cfg.FrontendURL {
@@ -200,20 +194,39 @@ func DiscordCallback(c *gin.Context) {
 	}
 
 	redirectURL := fmt.Sprintf("%s/login?token=%s", frontendURL, jwtToken)
-	utils.LogInfo("[DiscordCallback] Redirecting user %s to frontend: %s", user.ID, redirectURL)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
+// Returns full account info (not just JWT claims)
 func Me(c *gin.Context) {
-	claims, _ := c.Get("claims")
-	utils.LogInfo("[Me] Returning authenticated user claims")
-	c.JSON(http.StatusOK, gin.H{"user": claims})
+	claims := c.MustGet("claims").(*utils.JWTClaims)
+
+	collection := db.GetCollection("accounts")
+	var account models.Account
+
+	err := collection.FindOne(c, bson.M{"discord_id": claims.UserID}).Decode(&account)
+	if err != nil {
+		fmt.Println(err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
+		return
+	}
+
+	// Strip sensitive tokens before sending to frontend
+	if account.Discord.AccessToken != "" {
+		account.Discord.AccessToken = ""
+		account.Discord.RefreshToken = ""
+	}
+	if account.Nitrado != nil {
+		account.Nitrado.AccessToken = ""
+		account.Nitrado.RefreshToken = ""
+	}
+
+	utils.LogInfo("[Me] Returning full account for %s", claims.UserID)
+	c.JSON(http.StatusOK, gin.H{"user": account})
 }
 
-// Fetch Discord user info
+// --- Discord API helpers ---
 func fetchDiscordUser(accessToken string) (*models.DiscordUser, error) {
-	utils.LogInfo("[fetchDiscordUser] Requesting user info from Discord")
-
 	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
@@ -226,8 +239,7 @@ func fetchDiscordUser(accessToken string) (*models.DiscordUser, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		utils.LogError("[fetchDiscordUser] Discord API %d: %s", resp.StatusCode, string(body))
-		return nil, fmt.Errorf("discord api %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("discord user fetch failed: %s", body)
 	}
 
 	var user models.DiscordUser
@@ -235,15 +247,11 @@ func fetchDiscordUser(accessToken string) (*models.DiscordUser, error) {
 		utils.LogError("[fetchDiscordUser] Decode error: %v", err)
 		return nil, err
 	}
-
-	utils.LogSuccess("[fetchDiscordUser] Successfully decoded Discord user %s (%s)", user.Username, user.ID)
 	return &user, nil
 }
 
 // Fetch Discord guilds list
 func fetchDiscordGuilds(accessToken string) ([]models.DiscordGuild, error) {
-	utils.LogInfo("[fetchDiscordGuilds] Requesting guild list from Discord")
-
 	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me/guilds", nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept-Encoding", "gzip")
@@ -251,8 +259,7 @@ func fetchDiscordGuilds(accessToken string) ([]models.DiscordGuild, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		utils.LogError("[fetchDiscordGuilds] Request error: %v", err)
-		return nil, fmt.Errorf("request error: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -264,23 +271,14 @@ func fetchDiscordGuilds(accessToken string) ([]models.DiscordGuild, error) {
 
 	var reader io.Reader = resp.Body
 	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			utils.LogError("[fetchDiscordGuilds] Gzip reader error: %v", err)
-			return nil, fmt.Errorf("gzip reader: %w", err)
-		}
+		gz, _ := gzip.NewReader(resp.Body)
 		defer gz.Close()
 		reader = gz
 	}
 
-	body, _ := io.ReadAll(reader)
-
 	var guilds []models.DiscordGuild
-	if err := json.Unmarshal(body, &guilds); err != nil {
-		utils.LogError("[fetchDiscordGuilds] Decode error: %v", err)
-		return nil, fmt.Errorf("decode error: %w", err)
+	if err := json.NewDecoder(reader).Decode(&guilds); err != nil {
+		return nil, err
 	}
-
-	utils.LogSuccess("[fetchDiscordGuilds] Successfully decoded %d guilds", len(guilds))
 	return guilds, nil
 }
