@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/SowinskiBraeden/dayz-reforger-api/utils"
@@ -32,6 +33,12 @@ func RequireRole(role string) gin.HandlerFunc {
 // RequireGuildAccess checks if a user (or bot) has permission to access a guild.
 func RequireGuildAccess() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip preflight
+		if c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+
 		authType := c.GetString("authType")
 		guildID := c.Param("id")
 
@@ -44,6 +51,7 @@ func RequireGuildAccess() gin.HandlerFunc {
 
 		// User auth required
 		claims, ok := c.Get("claims")
+		fmt.Println(claims)
 		if !ok {
 			utils.LogWarn("[RequireGuildAccess] Missing claims for guildID=%s from %s", guildID, c.ClientIP())
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing claims"})

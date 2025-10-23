@@ -106,6 +106,13 @@ func DiscordCallback(c *gin.Context) {
 		utils.LogInfo("[DiscordCallback] Retrieved %d guilds for user %s", len(guilds), user.ID)
 	}
 
+	var ownedGuilds []string
+	for _, g := range guilds {
+		if g.Owner || (g.Permissions&0x20) != 0 {
+			ownedGuilds = append(ownedGuilds, g.ID)
+		}
+	}
+
 	utils.LogInfo("[DiscordCallback] Retrieved %d guilds for %s", len(guilds), user.ID)
 
 	// Upsert account record in Mongo
@@ -168,6 +175,7 @@ func DiscordCallback(c *gin.Context) {
 	claims := utils.JWTClaims{
 		UserID:   user.ID,
 		Username: user.Username,
+		Guilds:   ownedGuilds,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(6 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
