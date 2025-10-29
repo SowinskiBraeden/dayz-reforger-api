@@ -20,6 +20,7 @@ type Account struct {
 	// Subscription & limits
 	Subscription   Subscription  `bson:"subscription" json:"subscription"`
 	InstanceAddons InstanceAddon `bson:"instance_addons" json:"instance_addons"`
+	UsedInstances  int           `bson:"used_instances" json:"used_instances"`
 
 	// Administrative
 	LastLogin time.Time `bson:"last_login" json:"last_login"`
@@ -42,29 +43,38 @@ type NitradoAuth struct {
 	NitradoTokenResponse `bson:",inline"`
 	ExpiresAt            time.Time `bson:"expires_at" json:"expires_at"`
 
-	Status  string `bson:"status,omitempty" json:"status,omitempty"`
-	Mission string `bson:"mission,omitempty" json:"mission,omitempty"`
-
 	LinkedAt  time.Time `bson:"linked_at" json:"linked_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 // Determine features access
 type Subscription struct {
-	Plan      string     `bson:"plan" json:"plan"` // e.g. "free", "pro", "analytics"
-	AutoRenew bool       `bson:"auto_renew" json:"auto_renew"`
-	ExpiresAt *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
-	RenewsAt  *time.Time `bson:"renews_at,omitempty" json:"renews_at,omitempty"`
-	UpdatedAt time.Time  `bson:"updated_at" json:"updated_at"`
+	Tier         string     `bson:"plan" json:"plan"`                                       // e.g. "free", "pro", "analytics"
+	TierOverride string     `bson:"tier_override,omitempty" json:"tier_override,omitempty"` // e.g. "pro", "analytics" free access
+	AutoRenew    bool       `bson:"auto_renew" json:"auto_renew"`
+	ExpiresAt    *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
+	RenewsAt     *time.Time `bson:"renews_at,omitempty" json:"renews_at,omitempty"`
+	UpdatedAt    time.Time  `bson:"updated_at" json:"updated_at"`
 }
 
 // Determines number of instances (guild + nitrado dayz) (1 for free)
 type InstanceAddon struct {
-	BaseLimit      int        `bson:"base_limit" json:"base_limit"`           // Default limit (1 for free)
-	ExtraInstances int        `bson:"extra_instances" json:"extra_instances"` // Purchased add-on instances
-	TotalLimit     int        `bson:"total_limit" json:"total_limit"`         // Derived (BaseLimit + ExtraInstances)
-	AutoRenew      bool       `bson:"auto_renew" json:"auto_renew"`
-	ExpiresAt      *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
-	RenewsAt       *time.Time `bson:"renews_at,omitempty" json:"renews_at,omitempty"`
-	UpdatedAt      time.Time  `bson:"updated_at" json:"updated_at"`
+	BaseLimit        int        `bson:"base_limit" json:"base_limit"`                                   // Default limit (1 for free)
+	ExtraInstances   int        `bson:"extra_instances" json:"extra_instances"`                         // Purchased add-on instances
+	InstanceOverride *int       `bson:"instance_override,omitempty" json:"instance_override,omitempty"` // Manually granted free instances
+	AutoRenew        bool       `bson:"auto_renew" json:"auto_renew"`
+	ExpiresAt        *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
+	RenewsAt         *time.Time `bson:"renews_at,omitempty" json:"renews_at,omitempty"`
+	UpdatedAt        time.Time  `bson:"updated_at" json:"updated_at"`
+
+	// Derived, not stored in DB
+	InstanceLimit int `json:"instance_limit"`
+}
+
+func (i *InstanceAddon) CalculateLimit() int {
+	limit := i.BaseLimit + i.ExtraInstances
+	if i.InstanceOverride != nil {
+		limit = limit + *i.InstanceOverride
+	}
+	return limit
 }

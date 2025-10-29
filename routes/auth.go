@@ -139,7 +139,7 @@ func DiscordCallback(c *gin.Context) {
 			"discord_id": user.ID,
 			"created_at": now,
 			"subscription": models.Subscription{
-				Plan:      "free",
+				Tier:      "free",
 				AutoRenew: false,
 				ExpiresAt: nil,
 				RenewsAt:  nil,
@@ -148,12 +148,12 @@ func DiscordCallback(c *gin.Context) {
 			"instance_addons": models.InstanceAddon{
 				BaseLimit:      1,
 				ExtraInstances: 0,
-				TotalLimit:     1,
 				AutoRenew:      false,
 				ExpiresAt:      nil,
 				RenewsAt:       nil,
 				UpdatedAt:      now,
 			},
+			"used_instances": 0,
 		},
 	}
 
@@ -228,6 +228,8 @@ func Me(c *gin.Context) {
 		account.Nitrado.AccessToken = ""
 		account.Nitrado.RefreshToken = ""
 	}
+
+	account.InstanceAddons.InstanceLimit = account.InstanceAddons.CalculateLimit()
 
 	utils.LogInfo("[Me] Returning full account for %s", claims.UserID)
 	c.JSON(http.StatusOK, gin.H{"user": account})

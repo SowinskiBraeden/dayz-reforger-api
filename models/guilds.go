@@ -20,41 +20,104 @@ type FactionArmband struct {
 	Armband string `bson:"armband" json:"armband"`
 }
 
+// Attributes can be blank, empty strings, but must be there still
 type GuildAttributes struct {
-	ServerID              string                    `bson:"serverID" json:"serverID"`
-	LastLog               string                    `bson:"lastLog" json:"lastLog"`
-	ServerName            string                    `bson:"serverName" json:"serverName"`
-	AutoRestart           bool                      `bson:"autoRestart" json:"autoRestart"`
-	ShowKillfeedCoords    bool                      `bson:"showKillfeedCoords" json:"showKillfeedCoords"`
-	ShowKillfeedWeapon    bool                      `bson:"showKillfeedWeapon" json:"showKillfeedWeapon"`
-	PurchaseUAV           bool                      `bson:"purchaseUAV" json:"purchaseUAV"`
-	PurchaseEMP           bool                      `bson:"purchaseEMP" json:"purchaseEMP"`
-	AllowedChannels       []string                  `bson:"allowedChannels" json:"allowedChannels"`
-	KillfeedChannel       string                    `bson:"killfeedChannel" json:"killfeedChannel"`
-	ConnectionLogsChannel string                    `bson:"connectionLogsChannel" json:"connectionLogsChannel"`
-	ActivePlayersChannel  string                    `bson:"activePlayersChannel" json:"activePlayersChannel"`
-	WelcomeChannel        string                    `bson:"welcomeChannel" json:"welcomeChannel"`
-	FactionArmbands       map[string]FactionArmband `bson:"factionArmbands" json:"factionArmbands"`
-	UsedArmbands          []string                  `bson:"usedArmbands" json:"usedArmbands"`
-	ExcludedRoles         []string                  `bson:"excludedRoles" json:"excludedRoles"`
-	BotAdminRoles         []string                  `bson:"botAdminRoles" json:"botAdminRoles"`
-	Alarms                []Alarm                   `bson:"alarms" json:"alarms"`
-	Events                []Event                   `bson:"events" json:"events"`
-	Uavs                  []UAV                     `bson:"uavs" json:"uavs"`
-	IncomeRoles           []string                  `bson:"incomeRoles" json:"incomeRoles"`
-	IncomeLimiter         float32                   `bson:"incomeLimiter" json:"incomeLimiter"`
-	StartingBalance       float32                   `bson:"startingBalance" json:"startingBalance"`
-	UavPrice              float32                   `bson:"uavPrice" json:"uavPrice"`
-	EmpPrice              float32                   `bson:"empPrice" json:"empPrice"`
-	LinkedGamertagRole    string                    `bson:"linkedGamertagRole" json:"linkedGamertagRole"`
-	MemberRole            string                    `bson:"memberRole" json:"memberRole"`
-	AdminRole             string                    `bson:"adminRole" json:"adminRole"`
-	CombatLogTimer        int                       `bson:"combatLogTimer" json:"combatLogTimer"`
+	ServerID               string                    `bson:"server_id"                 json:"server_id"                 validate:"required"`
+	OwnerID                string                    `bson:"owner_id"                  json:"owner_id"                  validate:"required"`
+	LastLog                string                    `bson:"last_log"                  json:"last_log"                  validate:"required"`
+	ServerName             string                    `bson:"server_name"               json:"server_name"               validate:"required"`
+	AutoRestart            bool                      `bson:"auto_restart"              json:"auto_restart"              validate:"required"`
+	ShowKillfeedCoords     bool                      `bson:"show_killfeed_coords"      json:"show_killfeed_coords"      validate:"required"`
+	ShowKillfeedWeaponIcon bool                      `bson:"show_killfeed_weapon_icon" json:"show_killfeed_weapon_icon" validate:"required"`
+	EnablePurchaseUAV      bool                      `bson:"enable_purchase_uav"       json:"enable_purchase_uav"       validate:"required"`
+	EnablePurchaseEMP      bool                      `bson:"enable_purchase_emp"       json:"enable_purchase_emp"       validate:"required"`
+	AllowedCommandChannels []string                  `bson:"allowed_command_channels"  json:"allowed_command_channels"  validate:"required"`
+	KillfeedChannel        string                    `bson:"killfeed_channel"          json:"killfeed_channel"          validate:"required"`
+	ConnectionLogsChannel  string                    `bson:"connection_logs_channel"   json:"connection_logs_channel"   validate:"required"`
+	BaseBuildLogsChannel   string                    `bson:"base_build_logs_channel"   json:"base_build_logs_channel"   validate:"required"`
+	ActivePlayersChannel   string                    `bson:"active_players_channel"    json:"active_players_channel"    validate:"required"`
+	WelcomeChannel         string                    `bson:"welcome_channel"           json:"welcome_channel"           validate:"required"`
+	SendWelcomeMessage     bool                      `bson:"send_welcome_message"      json:"send_welcome_message"      validate:"required"`
+	WelcomeMessage         string                    `bson:"welcome_message"           json:"welcome_message"           validate:"required,min=0,max=250"`
+	FactionArmbands        map[string]FactionArmband `bson:"faction_armbands"          json:"faction_armbands"          validate:"required"`
+	UsedArmbands           []string                  `bson:"used_armbands"             json:"used_armbands"             validate:"required"`
+	ExcludedRoles          []string                  `bson:"excluded_roles"            json:"excluded_roles"            validate:"required"`
+	BotAdminRoles          []string                  `bson:"bot_admin_roles"           json:"bot_admin_roles"           validate:"required"` // determines admin command access for bot only
+	WebAdminUserIDs        []string                  `bson:"web_admin_user_ids"        json:"web_admin_user_ids"        validate:"required"` // determines web panel access to servers
+	Alarms                 []Alarm                   `bson:"alarms"                    json:"alarms"                    validate:"required"`
+	Events                 []Event                   `bson:"events"                    json:"events"                    validate:"required"`
+	UAVs                   []UAV                     `bson:"uavs"                      json:"uavs"                      validate:"required"`
+	IncomeRoles            []string                  `bson:"income_roles"              json:"income_roles"              validate:"required"`
+	IncomeLimitHours       float32                   `bson:"income_limit_hours"        json:"income_limit_hours"        validate:"required,gte=0.0"`
+	StartingBalance        float32                   `bson:"starting_balance"          json:"starting_balance"          validate:"required,gte=0.0"`
+	UAVPrice               float32                   `bson:"uav_price"                 json:"uav_price"                 validate:"required,gte=0.0"`
+	UAVRadiusMeters        int                       `bson:"uav_radius_meters"         json:"uav_radius_meters"         validate:"required,gte=25,lte=7500"`
+	EMPPrice               float32                   `bson:"emp_price"                 json:"emp_price"                 validate:"required,gte=0.0"`
+	EMPDurationMinutes     int                       `bson:"emp_duration_minutes"      json:"emp_duration_minutes"      validate:"required,gte=30,lte=120"`
+	LinkedGamertagRole     string                    `bson:"linked_gamertag_role"      json:"linked_gamertag_role"      validate:"required"`
+	MemberRole             string                    `bson:"member_role"               json:"member_role"               validate:"required"`
+	IssueMemberRole        bool                      `bson:"issue_member_role"         json:"issue_member_role"         validate:"required"`
+	CombatLogTimerMinutes  int                       `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"required,gte=0,lte=60"`
 }
 
 type GuildConfig struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	OwnerID   string             `bson:"owner_id" json:"owner_id"`
+	GuildID   string             `bson:"server_id" json:"server_id"`
 	Server    GuildAttributes    `bson:"server" json:"server"`
+	Nitrado   *NitradoConfig     `bson:"nitrado,omitempty" json:"nitrado,omitempty"`
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+}
+
+type NitradoConfig struct {
+	ServerID string `bson:"server_id" json:"server_id"`
+	Status   string `bson:"status,omitempty" json:"status,omitempty"`
+	Mission  string `bson:"mission,omitempty" json:"mission,omitempty"`
+}
+
+func GetDefaultConfig(serverID, ownerID string) GuildAttributes {
+	return GuildAttributes{
+		ServerID:               serverID,
+		OwnerID:                ownerID,
+		LastLog:                "",
+		ServerName:             "",
+		AutoRestart:            false,
+		ShowKillfeedCoords:     true,
+		ShowKillfeedWeaponIcon: true,
+		EnablePurchaseUAV:      true,
+		EnablePurchaseEMP:      true,
+		AllowedCommandChannels: []string{},
+		KillfeedChannel:        "",
+		ConnectionLogsChannel:  "",
+		BaseBuildLogsChannel:   "",
+		ActivePlayersChannel:   "",
+		WelcomeChannel:         "",
+		SendWelcomeMessage:     true,
+		WelcomeMessage:         "Welcome to our server!",
+		FactionArmbands:        map[string]FactionArmband{},
+		UsedArmbands:           []string{},
+		ExcludedRoles:          []string{},
+		BotAdminRoles:          []string{},
+		WebAdminUserIDs:        []string{},
+		Alarms:                 []Alarm{},
+		Events:                 []Event{},
+		UAVs:                   []UAV{},
+		IncomeRoles:            []string{},
+		IncomeLimitHours:       168, // # of hours in 7 days
+		StartingBalance:        500.00,
+		UAVPrice:               50_000.00,
+		UAVRadiusMeters:        250,
+		EMPPrice:               250_000.00,
+		EMPDurationMinutes:     30,
+		LinkedGamertagRole:     "",
+		MemberRole:             "",
+		IssueMemberRole:        false,
+		CombatLogTimerMinutes:  5,
+	}
+}
+
+type GuildLinkRequest struct {
+	GuildID         string `json:"guild_id"          validate:"required"`
+	NitradoServerID string `json:"nitrado_server_id" validate:"required"`
 }
