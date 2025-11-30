@@ -20,6 +20,13 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
+// Register guild routes under /api/guilds
+func registerNitradoRoutes(api *gin.RouterGroup, cfg *config.Config) {
+	utils.LogInfo("Registering nitrado routes")
+
+	api.GET("/nitrado/servers", GetNitradoServices)
+}
+
 func NitradoLogin(c *gin.Context) {
 	cfg := c.MustGet("config").(*config.Config)
 
@@ -277,4 +284,51 @@ func EnsureValidNitradoToken(acc *models.Account, cfg *config.Config) (string, e
 	}
 
 	return token.AccessToken, nil
+}
+
+func GetNitradoServices(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
+	claims := c.MustGet("claims").(*utils.JWTClaims)
+	userID := claims.UserID
+
+	accountsCollection := db.GetCollection("accounts")
+
+	var account models.Account
+	if err := accountsCollection.FindOne(c, bson.M{"discord_id": userID}).Decode(&account); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found"})
+		return
+	}
+
+	if account.Nitrado == nil || account.Nitrado.AccessToken == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no nitrado account linked"})
+		return
+	}
+
+	decryptedToken, _ := utils.Decrypt(account.Nitrado.AccessToken, cfg.EncryptionKey)
+
+	req, _ := http.NewRequest("GET", "https://api.nitrado.net/services", nil)
+	req.Header.Set("Authorization", "Bearer "+decryptedToken)
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		utils.LogError("[GetNitradoServices] Nitrado API request failed for userID=%s: %v", account.DiscordID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch nitrado services"})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		utils.LogError("[GetNitradoServices] Nitrado API returned %d for userID=%s: %s", resp.StatusCode, account.DiscordID, string(body))
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Nitrado API returned %d", resp.StatusCode)})
+	}
+
+	var nitradoResp any
+	if err := json.NewDecoder(resp.Body).Decode(&nitradoResp); err != nil {
+		utils.LogError("[GetNitradoServices] Failed to decode Nitrado service list for userID=%s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode nitrado service list"})
+		return
+	}
+
+	c.JSON(http.StatusOK, nitradoResp)
 }

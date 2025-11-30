@@ -64,6 +64,7 @@ type GuildConfig struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	OwnerID   string             `bson:"owner_id" json:"owner_id"`
 	GuildID   string             `bson:"server_id" json:"server_id"`
+	Active    bool               `bson:"active" json:"active"`
 	Server    GuildAttributes    `bson:"server" json:"server"`
 	Nitrado   *NitradoConfig     `bson:"nitrado,omitempty" json:"nitrado,omitempty"`
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
@@ -71,7 +72,7 @@ type GuildConfig struct {
 }
 
 type NitradoConfig struct {
-	ServerID string `bson:"server_id" json:"server_id"`
+	ServerID int64  `bson:"server_id" json:"server_id"`
 	Status   string `bson:"status,omitempty" json:"status,omitempty"`
 	Mission  string `bson:"mission,omitempty" json:"mission,omitempty"`
 }
@@ -118,6 +119,5 @@ func GetDefaultConfig(serverID, ownerID string) GuildAttributes {
 }
 
 type GuildLinkRequest struct {
-	GuildID         string `json:"guild_id"          validate:"required"`
-	NitradoServerID string `json:"nitrado_server_id" validate:"required"`
+	NitradoServerID int64 `json:"nitrado_server_id" validate:"required"`
 }

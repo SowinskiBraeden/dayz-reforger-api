@@ -1,11 +1,11 @@
 package models
 
 type NitradoTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `bson:"access_token" json:"access_token"`
+	RefreshToken string `bson:"refresh_token" json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int64  `json:"expires_in"`
-	Scope        string `json:"scope"`
+	Scope        string `bson:"scope" json:"scope"`
 }
 
 type NitradoUserResponse struct {
