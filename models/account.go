@@ -20,7 +20,7 @@ type Account struct {
 	// Subscription & limits
 	Subscription   Subscription  `bson:"subscription" json:"subscription"`
 	InstanceAddons InstanceAddon `bson:"instance_addons" json:"instance_addons"`
-	UsedInstances  int           `bson:"used_instances" json:"used_instances"`
+	UsedInstances  uint8         `bson:"used_instances" json:"used_instances"`
 
 	// Administrative
 	LastLogin time.Time `bson:"last_login" json:"last_login"`
@@ -36,7 +36,7 @@ type DiscordAuth struct {
 }
 
 type NitradoAuth struct {
-	UserID  int64  `bson:"user_id" json:"user_id"`
+	UserID  uint64 `bson:"user_id" json:"user_id"`
 	Email   string `bson:"email" json:"email"`
 	Country string `bson:"country" json:"country"`
 
@@ -59,19 +59,19 @@ type Subscription struct {
 
 // Determines number of instances (guild + nitrado dayz) (1 for free)
 type InstanceAddon struct {
-	BaseLimit        int        `bson:"base_limit" json:"base_limit"`                                   // Default limit (1 for free)
-	ExtraInstances   int        `bson:"extra_instances" json:"extra_instances"`                         // Purchased add-on instances
-	InstanceOverride *int       `bson:"instance_override,omitempty" json:"instance_override,omitempty"` // Manually granted free instances
+	BaseLimit        uint8      `bson:"base_limit" json:"base_limit"`                                   // Default limit (1 for free)
+	ExtraInstances   uint8      `bson:"extra_instances" json:"extra_instances"`                         // Purchased add-on instances
+	InstanceOverride *uint8     `bson:"instance_override,omitempty" json:"instance_override,omitempty"` // Manually granted free instances
 	AutoRenew        bool       `bson:"auto_renew" json:"auto_renew"`
 	ExpiresAt        *time.Time `bson:"expires_at,omitempty" json:"expires_at,omitempty"`
 	RenewsAt         *time.Time `bson:"renews_at,omitempty" json:"renews_at,omitempty"`
 	UpdatedAt        time.Time  `bson:"updated_at" json:"updated_at"`
 
 	// Derived, not stored in DB
-	InstanceLimit int `json:"instance_limit"`
+	InstanceLimit uint8 `json:"instance_limit"`
 }
 
-func (i *InstanceAddon) CalculateLimit() int {
+func (i *InstanceAddon) CalculateLimit() uint8 {
 	limit := i.BaseLimit + i.ExtraInstances
 	if i.InstanceOverride != nil {
 		limit = limit + *i.InstanceOverride

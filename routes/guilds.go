@@ -254,7 +254,7 @@ func LinkGuild(c *gin.Context) {
 
 	instanceLimit := account.InstanceAddons.CalculateLimit()
 	existingCount, _ := guildsCollection.CountDocuments(c, bson.M{"owner_id": userID})
-	if int(existingCount) >= instanceLimit {
+	if uint8(existingCount) >= instanceLimit {
 		c.JSON(http.StatusForbidden, gin.H{"error": "instance limit reached"})
 		return
 	}

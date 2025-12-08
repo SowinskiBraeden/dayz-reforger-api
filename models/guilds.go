@@ -48,16 +48,16 @@ type GuildAttributes struct {
 	Events                 []Event                   `bson:"events"                    json:"events"                    validate:"required"`
 	UAVs                   []UAV                     `bson:"uavs"                      json:"uavs"                      validate:"required"`
 	IncomeRoles            []string                  `bson:"income_roles"              json:"income_roles"              validate:"required"`
-	IncomeLimitHours       float32                   `bson:"income_limit_hours"        json:"income_limit_hours"        validate:"required,gte=0.0"`
-	StartingBalance        float32                   `bson:"starting_balance"          json:"starting_balance"          validate:"required,gte=0.0"`
-	UAVPrice               float32                   `bson:"uav_price"                 json:"uav_price"                 validate:"required,gte=0.0"`
-	UAVRadiusMeters        int                       `bson:"uav_radius_meters"         json:"uav_radius_meters"         validate:"required,gte=25,lte=7500"`
-	EMPPrice               float32                   `bson:"emp_price"                 json:"emp_price"                 validate:"required,gte=0.0"`
-	EMPDurationMinutes     int                       `bson:"emp_duration_minutes"      json:"emp_duration_minutes"      validate:"required,gte=30,lte=120"`
+	IncomeLimitHours       float64                   `bson:"income_limit_hours"        json:"income_limit_hours"        validate:"required,gte=0.0"`
+	StartingBalance        float64                   `bson:"starting_balance"          json:"starting_balance"          validate:"required,gte=0.0"`
+	UAVPrice               float64                   `bson:"uav_price"                 json:"uav_price"                 validate:"required,gte=0.0"`
+	UAVRadiusMeters        uint16                    `bson:"uav_radius_meters"         json:"uav_radius_meters"         validate:"required,gte=25,lte=7500"`
+	EMPPrice               float64                   `bson:"emp_price"                 json:"emp_price"                 validate:"required,gte=0.0"`
+	EMPDurationMinutes     uint8                     `bson:"emp_duration_minutes"      json:"emp_duration_minutes"      validate:"required,gte=30,lte=120"`
 	LinkedGamertagRole     string                    `bson:"linked_gamertag_role"      json:"linked_gamertag_role"      validate:"required"`
 	MemberRole             string                    `bson:"member_role"               json:"member_role"               validate:"required"`
 	IssueMemberRole        bool                      `bson:"issue_member_role"         json:"issue_member_role"         validate:"required"`
-	CombatLogTimerMinutes  int                       `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"required,gte=0,lte=60"`
+	CombatLogTimerMinutes  uint8                     `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"required,gte=0,lte=60"`
 }
 
 type GuildConfig struct {
