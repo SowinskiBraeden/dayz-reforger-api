@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,7 +98,14 @@ func DiscordCallback(c *gin.Context) {
 	utils.LogInfo("[DiscordCallback] Retrieved user info for %s (%s)", user.Username, user.ID)
 
 	// Fetch guilds from Discord
-	guilds, err := fetchDiscordGuilds(token.AccessToken)
+	encrytpedToken, _ := utils.Encrypt(token.AccessToken, cfg.EncryptionKey)
+	var account models.Account = models.Account{
+		DiscordID: user.ID,
+		Discord: models.DiscordAuth{
+			AccessToken: encrytpedToken,
+		},
+	}
+	guilds, err := FetchAndCacheUserGuilds(cfg, &account)
 	if err != nil {
 		utils.LogWarn("[DiscordCallback] Failed to fetch Discord guilds: %v", err)
 	} else {
@@ -139,7 +145,7 @@ func DiscordCallback(c *gin.Context) {
 			"discord_id": user.ID,
 			"created_at": now,
 			"subscription": models.Subscription{
-				Plan:      "free",
+				Tier:      "free",
 				AutoRenew: false,
 				ExpiresAt: nil,
 				RenewsAt:  nil,
@@ -148,12 +154,12 @@ func DiscordCallback(c *gin.Context) {
 			"instance_addons": models.InstanceAddon{
 				BaseLimit:      1,
 				ExtraInstances: 0,
-				TotalLimit:     1,
 				AutoRenew:      false,
 				ExpiresAt:      nil,
 				RenewsAt:       nil,
 				UpdatedAt:      now,
 			},
+			"used_instances": 0,
 		},
 	}
 
@@ -229,6 +235,8 @@ func Me(c *gin.Context) {
 		account.Nitrado.RefreshToken = ""
 	}
 
+	account.InstanceAddons.InstanceLimit = account.InstanceAddons.CalculateLimit()
+
 	utils.LogInfo("[Me] Returning full account for %s", claims.UserID)
 	c.JSON(http.StatusOK, gin.H{"user": account})
 }
@@ -256,37 +264,4 @@ func fetchDiscordUser(accessToken string) (*models.DiscordUser, error) {
 		return nil, err
 	}
 	return &user, nil
-}
-
-// Fetch Discord guilds list
-func fetchDiscordGuilds(accessToken string) ([]models.DiscordGuild, error) {
-	req, _ := http.NewRequest("GET", "https://discord.com/api/users/@me/guilds", nil)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept-Encoding", "gzip")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		utils.LogError("[fetchDiscordGuilds] Discord API %d: %s", resp.StatusCode, string(b))
-		return nil, fmt.Errorf("discord api %d: %s", resp.StatusCode, string(b))
-	}
-
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, _ := gzip.NewReader(resp.Body)
-		defer gz.Close()
-		reader = gz
-	}
-
-	var guilds []models.DiscordGuild
-	if err := json.NewDecoder(reader).Decode(&guilds); err != nil {
-		return nil, err
-	}
-	return guilds, nil
 }

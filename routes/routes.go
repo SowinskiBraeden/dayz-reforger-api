@@ -37,4 +37,5 @@ func RegisterRoutes(router *gin.Engine, cfg *config.Config) {
 
 	// Guild config routes (protected)
 	registerGuildRoutes(api, cfg)
+	registerNitradoRoutes(api, cfg)
 }

@@ -24,8 +24,8 @@ type clientLimiter struct {
 	lastSeen time.Time
 }
 
-// globalLimiter: 3 requests/sec with burst of 8
-var globalLimiter = newRateLimiter(3, 8)
+// globalLimiter: 20 requests/sec with burst of 50
+var globalLimiter = newRateLimiter(20, 50)
 
 func newRateLimiter(r rate.Limit, b int) *rateLimiter {
 	utils.LogInfo("[RateLimiter] Initializing global rate limiter: %.2f req/sec, burst=%d", r, b)
