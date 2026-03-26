@@ -25,3 +25,11 @@ type DiscordGuild struct {
 	PermissionsNew string   `json:"permissions_new"`
 	Features       []string `json:"features"`
 }
+
+type DiscordChannel struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     int    `json:"type"`
+	ParentID string `json:"parent_id,omitempty"`
+	Position int    `json:"position"`
+}

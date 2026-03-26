@@ -13,6 +13,7 @@ type Config struct {
 	MongoURI            string   `env:"MONGO_URI"`
 	DatabaseName        string   `env:"MONGO_DB"`
 	JWTSecret           string   `env:"JWT_SECRET"`
+	DiscordBotToken     string   `env:"DISCORD_BOT_TOKEN"`
 	DiscordClientID     string   `env:"DISCORD_CLIENT_ID"`
 	DiscordClientSecret string   `env:"DISCORD_CLIENT_SECRET"`
 	DiscordRedirectURI  string   `env:"DISCORD_REDIRECT_URI"`
@@ -54,6 +55,7 @@ func Load() *Config {
 		MongoURI:            mustGetEnv("MONGO_URI"),
 		DatabaseName:        getEnv("MONGO_DB", "dayzReforger"),
 		JWTSecret:           mustGetEnv("JWT_SECRET"),
+		DiscordBotToken:     mustGetEnv("DISCORD_BOT_TOKEN"),
 		DiscordClientID:     mustGetEnv("DISCORD_CLIENT_ID"),
 		DiscordClientSecret: mustGetEnv("DISCORD_CLIENT_SECRET"),
 		DiscordRedirectURI:  mustGetEnv("DISCORD_REDIRECT_URI"),

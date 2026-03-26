@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -39,12 +40,19 @@ func registerGuildRoutes(api *gin.RouterGroup, cfg *config.Config) {
 
 	api.GET("/guilds", GetUserGuilds)
 	api.GET("/guilds/linked", GetLinkedGuilds)
+
 	guilds := api.Group("/guilds")
 	guilds.Use(middleware.RequireGuildAccess())
 
 	guilds.POST("/:id/link", LinkGuild)
+	guilds.POST("/:id/unlink", UnlinkGuild)
 	guilds.GET("/:id/config", GetGuildConfig)
 	guilds.PUT("/:id/config", UpdateGuildConfig)
+	guilds.GET("/:id/channels", GetGuildChannels)
+
+	guilds.GET("/:id/readiness", GetGuildReadiness)
+	guilds.POST("/:id/activate", ActivateGuild)
+	guilds.POST("/:id/deactivate", DeactivateGuild)
 }
 
 func GetGuildConfig(c *gin.Context) {
@@ -67,6 +75,92 @@ func GetGuildConfig(c *gin.Context) {
 
 	utils.LogSuccess("Successfully fetched guild configuration for guildID=%s", guildID)
 	c.JSON(http.StatusOK, config)
+}
+
+func GetGuildChannels(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
+	guildID := c.Param("id")
+
+	req, err := http.NewRequest(
+		"GET",
+		fmt.Sprintf("https://discord.com/api/guilds/%s/channels", guildID),
+		nil,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create discord request"})
+		return
+	}
+
+	req.Header.Set("Authorization", "Bot "+cfg.DiscordBotToken)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch channels from discord"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	// Bot is not in guild or lacks access
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		inviteURL := fmt.Sprintf(
+			"https://discord.com/api/oauth2/authorize?client_id=%s&permissions=2147560512&scope=bot%%20applications.commands",
+			cfg.DiscordClientID,
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"bot_present": false,
+			"channels":    []models.DiscordChannel{},
+			"invite_url":  inviteURL,
+		})
+		return
+	}
+
+	// Invalid bot token or Discord auth issue
+	if resp.StatusCode == http.StatusUnauthorized {
+		utils.LogError("[GetGuildChannels] Discord bot auth failed for guildID=%s: %s", guildID, string(body))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "discord bot authentication failed",
+		})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		utils.LogError("[GetGuildChannels] Discord API returned %d for guildID=%s: %s", resp.StatusCode, guildID, string(body))
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":  "discord API error",
+			"detail": string(body),
+		})
+		return
+	}
+
+	var channels []models.DiscordChannel
+	if err := json.Unmarshal(body, &channels); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode channels"})
+		return
+	}
+
+	filtered := make([]models.DiscordChannel, 0)
+	for _, ch := range channels {
+		// 0 = guild text, 5 = announcement/news
+		if ch.Type == 0 || ch.Type == 5 {
+			filtered = append(filtered, ch)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].ParentID == filtered[j].ParentID {
+			return filtered[i].Position < filtered[j].Position
+		}
+		return filtered[i].ParentID < filtered[j].ParentID
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"bot_present": true,
+		"channels":    filtered,
+	})
 }
 
 func GetUserGuilds(c *gin.Context) {
@@ -167,58 +261,6 @@ func GetUserGuilds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"guilds": filtered})
 }
 
-func UpdateGuildConfig(c *gin.Context) {
-	guildID := c.Param("id")
-	utils.LogInfo("Updating guild configuration for guildID=%s", guildID)
-
-	validate := validator.New()
-
-	var attributes models.GuildAttributes
-	if err := c.BindJSON(&attributes); err != nil {
-		utils.LogError("Invalid JSON in UpdateGuildConfig for guildID=%s: %v", guildID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
-		return
-	}
-
-	err := validate.Struct(attributes)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("validation failed: %s", err)})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	filter := bson.M{"server.server_id": guildID}
-	update := bson.M{"$set": bson.M{"server": attributes}}
-
-	collection := db.GetCollection("guilds")
-	res, err := collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		utils.LogError("Database error updating guildID=%s: %v", guildID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   "Failed to update configuration",
-		})
-		return
-	}
-
-	if res.MatchedCount == 0 {
-		utils.LogWarn("Attempted to update non-existent guildID=%s", guildID)
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error":   "Guild not found",
-		})
-		return
-	}
-
-	utils.LogSuccess("Successfully updated guild configuration for guildID=%s", guildID)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Guild configuration updated successfully",
-	})
-}
-
 func LinkGuild(c *gin.Context) {
 	cfg := c.MustGet("config").(*config.Config)
 	claims := c.MustGet("claims").(*utils.JWTClaims)
@@ -227,7 +269,6 @@ func LinkGuild(c *gin.Context) {
 
 	var request models.GuildLinkRequest
 	if err := c.BindJSON(&request); err != nil {
-		utils.LogError("[LinkGuild] Invalid JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
@@ -259,7 +300,8 @@ func LinkGuild(c *gin.Context) {
 		return
 	}
 
-	if err := guildsCollection.FindOne(c, bson.M{"guild_id": guildID}).Err(); err == nil {
+	// correct field name
+	if err := guildsCollection.FindOne(c, bson.M{"server_id": guildID}).Err(); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "guild already linked"})
 		return
 	}
@@ -271,9 +313,7 @@ func LinkGuild(c *gin.Context) {
 
 	if found && time.Now().Before(cached.expiry) {
 		ownedGuilds = cached.guilds
-		utils.LogInfo("[LinkGuild] Used cached guilds for userID=%s", userID)
 	} else {
-		utils.LogInfo("[LinkGuild] No valid cache found for userID=%s, fetching fresh guilds", userID)
 		guildsResp, err := FetchAndCacheUserGuilds(cfg, &account)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch Discord guilds"})
@@ -294,48 +334,115 @@ func LinkGuild(c *gin.Context) {
 		return
 	}
 
-	// nitradoToken, err := utils.Decrypt(account.Nitrado.AccessToken, cfg.EncryptionKey)
-	// if err == nil {
-	// 	if !verifyNitradoServiceOwnership(nitradoToken, request.NitradoServerID) {
-	// 		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized Nitrado service"})
-	// 		return
-	// 	}
-	// } else {
-	// 	utils.LogWarn("[LinkGuild] Failed to decrypt Nitrado token for ownership check: %v", err)
-	// }
-
 	now := time.Now()
 	guildAttributes := models.GetDefaultConfig(guildID, userID)
+
+	mission := ""
+	if fetchedMission, err := fetchNitradoMission(cfg, &account, request.NitradoServerID); err == nil {
+		mission = fetchedMission
+	} else {
+		utils.LogWarn("[LinkGuild] Failed to fetch mission for server %d: %v", request.NitradoServerID, err)
+	}
+
 	guildConfig := models.GuildConfig{
-		OwnerID:   userID,
-		GuildID:   guildID,
-		Server:    guildAttributes,
-		Nitrado:   &models.NitradoConfig{ServerID: request.NitradoServerID},
+		OwnerID: userID,
+		GuildID: guildID,
+		Active:  false,
+		Server:  guildAttributes,
+		Nitrado: &models.NitradoConfig{
+			ServerID: request.NitradoServerID,
+			Mission:  mission,
+		},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 
 	if _, err := guildsCollection.InsertOne(c, guildConfig); err != nil {
-		utils.LogError("[LinkGuild] Failed to insert guild config: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save guild config"})
 		return
 	}
 
-	_, err := accountsCollection.UpdateOne(
+	// optional now, since Me derives it anyway
+	_, _ = accountsCollection.UpdateOne(
 		c,
 		bson.M{"discord_id": userID},
-		bson.M{"$inc": bson.M{"instances_used": 1}},
+		bson.M{"$set": bson.M{"updated_at": time.Now()}},
 	)
-	if err != nil {
-		utils.LogWarn("[LinkGuild] Failed to increment instance usage for userID=%s: %v", userID, err)
-	}
-
-	utils.LogSuccess("[LinkGuild] Linked guild %s to Nitrado %s for user %s",
-		guildID, request.NitradoServerID, userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"guild":   guildConfig,
+	})
+}
+
+func UpdateGuildConfig(c *gin.Context) {
+	guildID := c.Param("id")
+	utils.LogInfo("Updating guild configuration for guildID=%s", guildID)
+
+	collection := db.GetCollection("guilds")
+	validate := validator.New()
+
+	var existing models.GuildConfig
+	err := collection.FindOne(context.TODO(), bson.M{"server.server_id": guildID}).Decode(&existing)
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "Guild not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Failed to load guild"})
+		return
+	}
+
+	var incoming map[string]any
+	if err := c.BindJSON(&incoming); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	currentBytes, _ := json.Marshal(existing.Server)
+	currentMap := map[string]any{}
+	_ = json.Unmarshal(currentBytes, &currentMap)
+
+	for k, v := range incoming {
+		currentMap[k] = v
+	}
+
+	mergedBytes, _ := json.Marshal(currentMap)
+
+	var merged models.GuildAttributes
+	if err := json.Unmarshal(mergedBytes, &merged); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config payload"})
+		return
+	}
+
+	if err := validate.Struct(merged); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("validation failed: %s", err),
+		})
+		return
+	}
+
+	_, err = collection.UpdateOne(
+		context.TODO(),
+		bson.M{"server.server_id": guildID},
+		bson.M{
+			"$set": bson.M{
+				"server":     merged,
+				"updated_at": time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to update configuration",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Guild configuration updated successfully",
+		"server":  merged,
 	})
 }
 
@@ -411,7 +518,10 @@ func GetLinkedGuilds(c *gin.Context) {
 		return
 	}
 
-	cursor, err := guildsCollection.Find(c, gin.H{"owner_id": userID})
+	cursor, err := guildsCollection.Find(c, gin.H{
+		"owner_id":          userID,
+		"nitrado.server_id": bson.M{"$exists": true},
+	})
 	if err != nil {
 		utils.LogError("[GetLinkedGuilds] Error fetching linked guilds: ", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch linked guilds"})
@@ -427,4 +537,231 @@ func GetLinkedGuilds(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "guilds": linkedGuilds})
+}
+
+func fetchNitradoMission(cfg *config.Config, account *models.Account, serverID int64) (string, error) {
+	if account.Nitrado == nil || account.Nitrado.AccessToken == "" {
+		return "", fmt.Errorf("no nitrado account linked")
+	}
+
+	token, err := EnsureValidNitradoToken(account, cfg)
+	if err != nil {
+		return "", err
+	}
+
+	url := fmt.Sprintf("https://api.nitrado.net/services/%d/gameservers", serverID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("nitrado api returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var raw struct {
+		Data struct {
+			Gameserver struct {
+				Settings struct {
+					Config struct {
+						Mission string `json:"mission"`
+					} `json:"config"`
+				} `json:"settings"`
+			} `json:"gameserver"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return "", err
+	}
+
+	return raw.Data.Gameserver.Settings.Config.Mission, nil
+}
+
+type ReadinessCheck struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	OK    bool   `json:"ok"`
+}
+
+func buildGuildReadiness(config models.GuildConfig) []ReadinessCheck {
+	server := config.Server
+
+	return []ReadinessCheck{
+		{Key: "nitrado_linked", Label: "Nitrado linked", OK: config.Nitrado != nil && config.Nitrado.ServerID != 0},
+		{Key: "server_name", Label: "Server name set", OK: server.ServerName != ""},
+		{Key: "killfeed_channel", Label: "Killfeed channel set", OK: server.KillfeedChannel != ""},
+		{Key: "connection_logs_channel", Label: "Connection logs channel set", OK: server.ConnectionLogsChannel != ""},
+		{Key: "welcome_channel", Label: "Welcome channel set", OK: server.WelcomeChannel != ""},
+		{Key: "member_role", Label: "Member role set", OK: server.MemberRole != ""},
+		{Key: "linked_gamertag_role", Label: "Linked gamertag role set", OK: server.LinkedGamertagRole != ""},
+	}
+}
+
+func GetGuildReadiness(c *gin.Context) {
+	guildID := c.Param("id")
+	collection := db.GetCollection("guilds")
+
+	var config models.GuildConfig
+	err := collection.FindOne(context.TODO(), bson.M{"server.server_id": guildID}).Decode(&config)
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusNotFound, gin.H{"error": "guild not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+
+	checks := buildGuildReadiness(config)
+	ready := true
+	for _, check := range checks {
+		if !check.OK {
+			ready = false
+			break
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"guild_id": guildID,
+		"active":   config.Active,
+		"ready":    ready,
+		"checks":   checks,
+	})
+}
+
+func ActivateGuild(c *gin.Context) {
+	guildID := c.Param("id")
+	collection := db.GetCollection("guilds")
+
+	var config models.GuildConfig
+	err := collection.FindOne(context.TODO(), bson.M{"server.server_id": guildID}).Decode(&config)
+	if err == mongo.ErrNoDocuments {
+		c.JSON(http.StatusNotFound, gin.H{"error": "guild not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		return
+	}
+
+	checks := buildGuildReadiness(config)
+	for _, check := range checks {
+		if !check.OK {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":  "guild is not ready to activate",
+				"checks": checks,
+			})
+			return
+		}
+	}
+
+	_, err = collection.UpdateOne(
+		context.TODO(),
+		bson.M{"server.server_id": guildID},
+		bson.M{
+			"$set": bson.M{
+				"active":     true,
+				"updated_at": time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to activate guild"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "guild activated",
+	})
+}
+
+func DeactivateGuild(c *gin.Context) {
+	guildID := c.Param("id")
+	collection := db.GetCollection("guilds")
+
+	_, err := collection.UpdateOne(
+		context.TODO(),
+		bson.M{"server.server_id": guildID},
+		bson.M{
+			"$set": bson.M{
+				"active":     false,
+				"updated_at": time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate guild"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "guild deactivated",
+	})
+}
+
+func UnlinkGuild(c *gin.Context) {
+	claims := c.MustGet("claims").(*utils.JWTClaims)
+	userID := claims.UserID
+	guildID := c.Param("id")
+
+	guildsCollection := db.GetCollection("guilds")
+	accountsCollection := db.GetCollection("accounts")
+
+	filter := bson.M{
+		"owner_id":         userID,
+		"server.server_id": guildID,
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"active":     false,
+			"updated_at": time.Now(),
+		},
+		"$unset": bson.M{
+			"nitrado": "",
+		},
+	}
+
+	res, err := guildsCollection.UpdateOne(c, filter, update)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unlink guild"})
+		return
+	}
+
+	if res.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "guild not found"})
+		return
+	}
+
+	remainingCount, err := guildsCollection.CountDocuments(c, bson.M{
+		"owner_id":          userID,
+		"nitrado.server_id": bson.M{"$exists": true},
+	})
+	if err == nil {
+		_, _ = accountsCollection.UpdateOne(
+			c,
+			bson.M{"discord_id": userID},
+			bson.M{
+				"$set": bson.M{
+					"used_instances": remainingCount,
+					"updated_at":     time.Now(),
+				},
+			},
+		)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "guild unlinked successfully",
+	})
 }

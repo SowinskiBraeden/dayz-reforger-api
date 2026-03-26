@@ -10,8 +10,8 @@ type Account struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	DiscordID string             `bson:"discord_id" json:"discord_id"`
 	Username  string             `bson:"username" json:"username"`
-	Email     string             `bson:"email,omitempty" json:"email,omitempty"`
-	Avatar    string             `bson:"avatar,omitempty" json:"avatar,omitempty"`
+	Email     string             `bson:"email" json:"email"`
+	Avatar    string             `bson:"avatar" json:"avatar"`
 
 	// OAuth-integrated services
 	Discord DiscordAuth  `bson:"discord" json:"discord"`
@@ -23,9 +23,9 @@ type Account struct {
 	UsedInstances  uint8         `bson:"used_instances" json:"used_instances"`
 
 	// Administrative
-	LastLogin time.Time `bson:"last_login" json:"last_login"`
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
+	LastLogin time.Time `bson:"last_login" json:"last_login"`
 }
 
 type DiscordAuth struct {
