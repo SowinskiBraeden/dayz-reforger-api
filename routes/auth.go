@@ -226,7 +226,10 @@ func Me(c *gin.Context) {
 	}
 
 	// derive actual instance usage from linked guilds
-	linkedCount, err := guildsCollection.CountDocuments(c, bson.M{"owner_id": claims.UserID})
+	linkedCount, err := guildsCollection.CountDocuments(c, bson.M{
+		"owner_id":          claims.UserID,
+		"nitrado.server_id": bson.M{"$exists": true},
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count linked guilds"})
 		return

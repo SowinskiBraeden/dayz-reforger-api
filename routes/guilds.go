@@ -293,19 +293,6 @@ func LinkGuild(c *gin.Context) {
 		return
 	}
 
-	instanceLimit := account.InstanceAddons.CalculateLimit()
-	existingCount, _ := guildsCollection.CountDocuments(c, bson.M{"owner_id": userID})
-	if uint8(existingCount) >= instanceLimit {
-		c.JSON(http.StatusForbidden, gin.H{"error": "instance limit reached"})
-		return
-	}
-
-	// correct field name
-	if err := guildsCollection.FindOne(c, bson.M{"server_id": guildID}).Err(); err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "guild already linked"})
-		return
-	}
-
 	var ownedGuilds []models.DiscordGuild
 	guildCacheMu.RLock()
 	cached, found := guildCache[userID]
@@ -334,15 +321,74 @@ func LinkGuild(c *gin.Context) {
 		return
 	}
 
-	now := time.Now()
-	guildAttributes := models.GetDefaultConfig(guildID, userID)
-
 	mission := ""
 	if fetchedMission, err := fetchNitradoMission(cfg, &account, request.NitradoServerID); err == nil {
 		mission = fetchedMission
 	} else {
 		utils.LogWarn("[LinkGuild] Failed to fetch mission for server %d: %v", request.NitradoServerID, err)
 	}
+
+	now := time.Now()
+
+	var existingGuild models.GuildConfig
+	err := guildsCollection.FindOne(c, bson.M{"server_id": guildID}).Decode(&existingGuild)
+	if err != nil && err != mongo.ErrNoDocuments {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check existing guild config"})
+		return
+	}
+
+	if err == nil {
+		if existingGuild.Nitrado != nil && existingGuild.Nitrado.ServerID != 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "guild already linked"})
+			return
+		}
+
+		update := bson.M{
+			"$set": bson.M{
+				"owner_id":          userID,
+				"nitrado.server_id": request.NitradoServerID,
+				"nitrado.mission":   mission,
+				"updated_at":        now,
+			},
+		}
+
+		if _, err := guildsCollection.UpdateOne(c, bson.M{"server_id": guildID}, update); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to relink guild config"})
+			return
+		}
+
+		existingGuild.OwnerID = userID
+		existingGuild.Nitrado = &models.NitradoConfig{
+			ServerID: request.NitradoServerID,
+			Mission:  mission,
+		}
+		existingGuild.UpdatedAt = now
+
+		_, _ = accountsCollection.UpdateOne(
+			c,
+			bson.M{"discord_id": userID},
+			bson.M{"$set": bson.M{"updated_at": now}},
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"guild":   existingGuild,
+		})
+		return
+	}
+
+	instanceLimit := account.InstanceAddons.CalculateLimit()
+	existingCount, _ := guildsCollection.CountDocuments(c, bson.M{
+		"owner_id":          userID,
+		"nitrado.server_id": bson.M{"$exists": true, "$nin": []any{"", nil, 0}},
+	})
+
+	if uint8(existingCount) >= instanceLimit {
+		c.JSON(http.StatusForbidden, gin.H{"error": "instance limit reached"})
+		return
+	}
+
+	guildAttributes := models.GetDefaultConfig(guildID, userID)
 
 	guildConfig := models.GuildConfig{
 		OwnerID: userID,
@@ -363,11 +409,11 @@ func LinkGuild(c *gin.Context) {
 	}
 
 	// optional now, since Me derives it anyway
-	_, _ = accountsCollection.UpdateOne(
-		c,
-		bson.M{"discord_id": userID},
-		bson.M{"$set": bson.M{"updated_at": time.Now()}},
-	)
+	// _, _ = accountsCollection.UpdateOne(
+	// 	c,
+	// 	bson.M{"discord_id": userID},
+	// 	bson.M{"$set": bson.M{"updated_at": now}},
+	// )
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
