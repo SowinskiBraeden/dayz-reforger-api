@@ -49,6 +49,7 @@ func registerGuildRoutes(api *gin.RouterGroup, cfg *config.Config) {
 	guilds.GET("/:id/config", GetGuildConfig)
 	guilds.PUT("/:id/config", UpdateGuildConfig)
 	guilds.GET("/:id/channels", GetGuildChannels)
+	guilds.GET("/:id/roles", GetGuildRoles)
 
 	guilds.GET("/:id/readiness", GetGuildReadiness)
 	guilds.POST("/:id/activate", ActivateGuild)
@@ -160,6 +161,111 @@ func GetGuildChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"bot_present": true,
 		"channels":    filtered,
+	})
+}
+
+func GetGuildRoles(c *gin.Context) {
+	cfg := c.MustGet("config").(*config.Config)
+	guildID := c.Param("id")
+
+	req, err := http.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("https://discord.com/api/guilds/%s/roles", guildID),
+		nil,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to create discord request",
+		})
+		return
+	}
+
+	req.Header.Set("Authorization", "Bot "+cfg.DiscordBotToken)
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		utils.LogError("[GetGuildRoles] failed request for guildID=%s: %v", guildID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to fetch roles from discord",
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		utils.LogError("[GetGuildRoles] failed reading response body for guildID=%s: %v", guildID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to read discord response",
+		})
+		return
+	}
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		inviteURL := fmt.Sprintf(
+			"https://discord.com/api/oauth2/authorize?client_id=%s&permissions=2147560512&scope=bot%%20applications.commands",
+			cfg.DiscordClientID,
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"bot_present": false,
+			"roles":       []models.DiscordRole{},
+			"invite_url":  inviteURL,
+		})
+		return
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		utils.LogError("[GetGuildRoles] discord bot auth failed for guildID=%s: %s", guildID, string(body))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "discord bot authentication failed",
+		})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		utils.LogError("[GetGuildRoles] discord API returned %d for guildID=%s: %s", resp.StatusCode, guildID, string(body))
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":  "discord API error",
+			"detail": string(body),
+		})
+		return
+	}
+
+	var roles []models.DiscordRole
+	if err := json.Unmarshal(body, &roles); err != nil {
+		utils.LogError("[GetGuildRoles] failed to decode roles for guildID=%s: %v", guildID, err)
+		utils.LogError("[GetGuildRoles] raw body: %s", string(body))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to decode roles",
+		})
+		return
+	}
+
+	filtered := make([]models.DiscordRole, 0, len(roles))
+	for _, role := range roles {
+		if role.ID == guildID {
+			continue
+		}
+
+		filtered = append(filtered, role)
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].Position == filtered[j].Position {
+			return filtered[i].Name < filtered[j].Name
+		}
+
+		return filtered[i].Position > filtered[j].Position
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"bot_present": true,
+		"roles":       filtered,
 	})
 }
 
@@ -647,8 +753,11 @@ func buildGuildReadiness(config models.GuildConfig) []ReadinessCheck {
 		{Key: "server_name", Label: "Server name set", OK: server.ServerName != ""},
 		{Key: "killfeed_channel", Label: "Killfeed channel set", OK: server.KillfeedChannel != ""},
 		{Key: "connection_logs_channel", Label: "Connection logs channel set", OK: server.ConnectionLogsChannel != ""},
-		{Key: "welcome_channel", Label: "Welcome channel set", OK: server.WelcomeChannel != ""},
-		{Key: "member_role", Label: "Member role set", OK: server.MemberRole != ""},
+		// {
+		// 	Key:   "welcome_channel",
+		// 	Label: "Welcome channel set",
+		// 	Ready: !welcomeEnabled || strings.TrimSpace(guild.WelcomeChannel) != "",
+		// },
 		{Key: "linked_gamertag_role", Label: "Linked gamertag role set", OK: server.LinkedGamertagRole != ""},
 	}
 }
