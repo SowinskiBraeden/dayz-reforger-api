@@ -22,42 +22,42 @@ type FactionArmband struct {
 
 // Attributes can be blank, empty strings, but must be there still
 type GuildAttributes struct {
-	ServerID               string                    `bson:"server_id"                 json:"server_id"                 validate:"required"`
-	OwnerID                string                    `bson:"owner_id"                  json:"owner_id"                  validate:"required"`
-	LastLog                string                    `bson:"last_log"                  json:"last_log"                  validate:"required"`
-	ServerName             string                    `bson:"server_name"               json:"server_name"               validate:"required"`
-	AutoRestart            bool                      `bson:"auto_restart"              json:"auto_restart"              validate:"required"`
-	ShowKillfeedCoords     bool                      `bson:"show_killfeed_coords"      json:"show_killfeed_coords"      validate:"required"`
-	ShowKillfeedWeaponIcon bool                      `bson:"show_killfeed_weapon_icon" json:"show_killfeed_weapon_icon" validate:"required"`
-	EnablePurchaseUAV      bool                      `bson:"enable_purchase_uav"       json:"enable_purchase_uav"       validate:"required"`
-	EnablePurchaseEMP      bool                      `bson:"enable_purchase_emp"       json:"enable_purchase_emp"       validate:"required"`
-	AllowedCommandChannels []string                  `bson:"allowed_command_channels"  json:"allowed_command_channels"  validate:"required"`
-	KillfeedChannel        string                    `bson:"killfeed_channel"          json:"killfeed_channel"          validate:"required"`
-	ConnectionLogsChannel  string                    `bson:"connection_logs_channel"   json:"connection_logs_channel"   validate:"required"`
-	BaseBuildLogsChannel   string                    `bson:"base_build_logs_channel"   json:"base_build_logs_channel"   validate:"required"`
-	ActivePlayersChannel   string                    `bson:"active_players_channel"    json:"active_players_channel"    validate:"required"`
-	WelcomeChannel         string                    `bson:"welcome_channel"           json:"welcome_channel"           validate:"required"`
-	SendWelcomeMessage     bool                      `bson:"send_welcome_message"      json:"send_welcome_message"      validate:"required"`
-	WelcomeMessage         string                    `bson:"welcome_message"           json:"welcome_message"           validate:"required,min=0,max=250"`
-	FactionArmbands        map[string]FactionArmband `bson:"faction_armbands"          json:"faction_armbands"          validate:"required"`
-	UsedArmbands           []string                  `bson:"used_armbands"             json:"used_armbands"             validate:"required"`
-	ExcludedRoles          []string                  `bson:"excluded_roles"            json:"excluded_roles"            validate:"required"`
-	BotAdminRoles          []string                  `bson:"bot_admin_roles"           json:"bot_admin_roles"           validate:"required"` // determines admin command access for bot only
-	WebAdminUserIDs        []string                  `bson:"web_admin_user_ids"        json:"web_admin_user_ids"        validate:"required"` // determines web panel access to servers
-	Alarms                 []Alarm                   `bson:"alarms"                    json:"alarms"                    validate:"required"`
-	Events                 []Event                   `bson:"events"                    json:"events"                    validate:"required"`
-	UAVs                   []UAV                     `bson:"uavs"                      json:"uavs"                      validate:"required"`
-	IncomeRoles            []string                  `bson:"income_roles"              json:"income_roles"              validate:"required"`
-	IncomeLimitHours       float64                   `bson:"income_limit_hours"        json:"income_limit_hours"        validate:"required,gte=0.0"`
-	StartingBalance        float64                   `bson:"starting_balance"          json:"starting_balance"          validate:"required,gte=0.0"`
-	UAVPrice               float64                   `bson:"uav_price"                 json:"uav_price"                 validate:"required,gte=0.0"`
-	UAVRadiusMeters        uint16                    `bson:"uav_radius_meters"         json:"uav_radius_meters"         validate:"required,gte=25,lte=7500"`
-	EMPPrice               float64                   `bson:"emp_price"                 json:"emp_price"                 validate:"required,gte=0.0"`
-	EMPDurationMinutes     uint8                     `bson:"emp_duration_minutes"      json:"emp_duration_minutes"      validate:"required,gte=30,lte=120"`
-	LinkedGamertagRole     string                    `bson:"linked_gamertag_role"      json:"linked_gamertag_role"      validate:"required"`
-	MemberRole             string                    `bson:"member_role"               json:"member_role"               validate:"required"`
-	IssueMemberRole        bool                      `bson:"issue_member_role"         json:"issue_member_role"         validate:"required"`
-	CombatLogTimerMinutes  uint8                     `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"required,gte=0,lte=60"`
+	ServerID               string                    `bson:"server_id"                 json:"server_id"`
+	OwnerID                string                    `bson:"owner_id"                  json:"owner_id"`
+	LastLog                string                    `bson:"last_log"                  json:"last_log"`
+	ServerName             string                    `bson:"server_name"               json:"server_name"`
+	AutoRestart            bool                      `bson:"auto_restart"              json:"auto_restart"`
+	ShowKillfeedCoords     bool                      `bson:"show_killfeed_coords"      json:"show_killfeed_coords"`
+	ShowKillfeedWeaponIcon bool                      `bson:"show_killfeed_weapon_icon" json:"show_killfeed_weapon_icon"`
+	EnablePurchaseUAV      bool                      `bson:"enable_purchase_uav"       json:"enable_purchase_uav"`
+	EnablePurchaseEMP      bool                      `bson:"enable_purchase_emp"       json:"enable_purchase_emp"`
+	AllowedCommandChannels []string                  `bson:"allowed_command_channels"  json:"allowed_command_channels"`
+	KillfeedChannel        string                    `bson:"killfeed_channel"          json:"killfeed_channel"`
+	ConnectionLogsChannel  string                    `bson:"connection_logs_channel"   json:"connection_logs_channel"`
+	BaseBuildLogsChannel   string                    `bson:"base_build_logs_channel"   json:"base_build_logs_channel"`
+	ActivePlayersChannel   string                    `bson:"active_players_channel"    json:"active_players_channel"`
+	WelcomeChannel         string                    `bson:"welcome_channel"           json:"welcome_channel"`
+	SendWelcomeMessage     bool                      `bson:"send_welcome_message"      json:"send_welcome_message"`
+	WelcomeMessage         string                    `bson:"welcome_message"           json:"welcome_message" validate:"max=250"`
+	FactionArmbands        map[string]FactionArmband `bson:"faction_armbands"          json:"faction_armbands"`
+	UsedArmbands           []string                  `bson:"used_armbands"             json:"used_armbands"`
+	ExcludedRoles          []string                  `bson:"excluded_roles"            json:"excluded_roles"`
+	BotAdminRoles          []string                  `bson:"bot_admin_roles"           json:"bot_admin_roles"`
+	WebAdminUserIDs        []string                  `bson:"web_admin_user_ids"        json:"web_admin_user_ids"`
+	Alarms                 []Alarm                   `bson:"alarms"                    json:"alarms"`
+	Events                 []Event                   `bson:"events"                    json:"events"`
+	UAVs                   []UAV                     `bson:"uavs"                      json:"uavs"`
+	IncomeRoles            []string                  `bson:"income_roles"              json:"income_roles"`
+	IncomeLimitHours       float64                   `bson:"income_limit_hours"        json:"income_limit_hours"        validate:"gte=0.0"`
+	StartingBalance        float64                   `bson:"starting_balance"          json:"starting_balance"          validate:"gte=0.0"`
+	UAVPrice               float64                   `bson:"uav_price"                 json:"uav_price"                 validate:"gte=0.0"`
+	UAVRadiusMeters        uint16                    `bson:"uav_radius_meters"         json:"uav_radius_meters"         validate:"gte=25,lte=7500"`
+	EMPPrice               float64                   `bson:"emp_price"                 json:"emp_price"                 validate:"gte=0.0"`
+	EMPDurationMinutes     uint8                     `bson:"emp_duration_minutes"      json:"emp_duration_minutes"      validate:"gte=30,lte=120"`
+	LinkedGamertagRole     string                    `bson:"linked_gamertag_role"      json:"linked_gamertag_role"`
+	MemberRole             string                    `bson:"member_role"               json:"member_role"`
+	IssueMemberRole        bool                      `bson:"issue_member_role"         json:"issue_member_role"`
+	CombatLogTimerMinutes  uint8                     `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"gte=0,lte=60"`
 }
 
 type GuildConfig struct {

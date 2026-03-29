@@ -25,6 +25,7 @@ func registerNitradoRoutes(api *gin.RouterGroup, cfg *config.Config) {
 	utils.LogInfo("Registering nitrado routes")
 
 	api.GET("/nitrado/servers", GetNitradoServices)
+	api.POST("/nitrado/unlink", UnlinkNitradoAccount)
 }
 
 func NitradoLogin(c *gin.Context) {
@@ -292,6 +293,7 @@ func GetNitradoServices(c *gin.Context) {
 	userID := claims.UserID
 
 	accountsCollection := db.GetCollection("accounts")
+	guildsCollection := db.GetCollection("guilds")
 
 	var account models.Account
 	if err := accountsCollection.FindOne(c, bson.M{"discord_id": userID}).Decode(&account); err != nil {
@@ -300,20 +302,28 @@ func GetNitradoServices(c *gin.Context) {
 	}
 
 	if account.Nitrado == nil || account.Nitrado.AccessToken == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no nitrado account linked"})
+		c.JSON(http.StatusOK, gin.H{
+			"linked":   false,
+			"services": []any{},
+		})
 		return
 	}
 
-	decryptedToken, _ := utils.Decrypt(account.Nitrado.AccessToken, cfg.EncryptionKey)
+	decryptedToken, err := utils.Decrypt(account.Nitrado.AccessToken, cfg.EncryptionKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt nitrado token"})
+		return
+	}
 
 	req, _ := http.NewRequest("GET", "https://api.nitrado.net/services", nil)
 	req.Header.Set("Authorization", "Bearer "+decryptedToken)
-	client := &http.Client{Timeout: 10 * time.Second}
 
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		utils.LogError("[GetNitradoServices] Nitrado API request failed for userID=%s: %v", account.DiscordID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch nitrado services"})
+		return
 	}
 	defer resp.Body.Close()
 
@@ -321,14 +331,136 @@ func GetNitradoServices(c *gin.Context) {
 		body, _ := io.ReadAll(resp.Body)
 		utils.LogError("[GetNitradoServices] Nitrado API returned %d for userID=%s: %s", resp.StatusCode, account.DiscordID, string(body))
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Nitrado API returned %d", resp.StatusCode)})
+		return
 	}
 
-	var nitradoResp any
-	if err := json.NewDecoder(resp.Body).Decode(&nitradoResp); err != nil {
+	var raw struct {
+		Data struct {
+			Services []map[string]any `json:"services"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		utils.LogError("[GetNitradoServices] Failed to decode Nitrado service list for userID=%s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode nitrado service list"})
 		return
 	}
 
-	c.JSON(http.StatusOK, nitradoResp)
+	cursor, err := guildsCollection.Find(c, bson.M{"owner_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch linked guilds"})
+		return
+	}
+	defer cursor.Close(c)
+
+	var linkedGuilds []models.GuildConfig
+	if err := cursor.All(c, &linkedGuilds); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode linked guilds"})
+		return
+	}
+
+	type ServiceSummary struct {
+		ID              int64  `json:"id"`
+		DisplayName     string `json:"display_name"`
+		Mission         string `json:"mission,omitempty"`
+		NitradoStatus   string `json:"nitrado_status,omitempty"`
+		LinkedGuildID   string `json:"linked_guild_id,omitempty"`
+		LinkedGuildName string `json:"linked_guild_name,omitempty"`
+		ParserEnabled   bool   `json:"parser_enabled"`
+	}
+
+	summaries := make([]ServiceSummary, 0, len(raw.Data.Services))
+
+	for _, service := range raw.Data.Services {
+		var serviceID int64
+		if idFloat, ok := service["id"].(float64); ok {
+			serviceID = int64(idFloat)
+		}
+
+		displayName := fmt.Sprintf("Service %d", serviceID)
+		nitradoStatus := ""
+
+		if details, ok := service["details"].(map[string]any); ok {
+			if value, ok := details["name"].(string); ok && value != "" {
+				displayName = value
+			}
+		}
+
+		if value, ok := service["status"].(string); ok {
+			nitradoStatus = value
+		}
+
+		summary := ServiceSummary{
+			ID:            serviceID,
+			DisplayName:   displayName,
+			NitradoStatus: nitradoStatus,
+			ParserEnabled: false,
+		}
+
+		for _, linked := range linkedGuilds {
+			if linked.Nitrado != nil && linked.Nitrado.ServerID == serviceID {
+				summary.LinkedGuildID = linked.GuildID
+
+				if linked.Server.ServerName != "" {
+					summary.LinkedGuildName = linked.Server.ServerName
+				} else {
+					summary.LinkedGuildName = linked.GuildID
+				}
+
+				summary.Mission = linked.Nitrado.Mission
+				summary.ParserEnabled = linked.Active
+				break
+			}
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"linked":   true,
+		"services": summaries,
+	})
+}
+
+func UnlinkNitradoAccount(c *gin.Context) {
+	claims := c.MustGet("claims").(*utils.JWTClaims)
+	userID := claims.UserID
+
+	accountsCollection := db.GetCollection("accounts")
+	guildsCollection := db.GetCollection("guilds")
+
+	// prevent unlink if any guilds are still linked
+	count, err := guildsCollection.CountDocuments(c, bson.M{"owner_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check linked guilds"})
+		return
+	}
+	if count > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "unlink all guilds from Nitrado before disconnecting the account",
+		})
+		return
+	}
+
+	_, err = accountsCollection.UpdateOne(
+		c,
+		bson.M{"discord_id": userID},
+		bson.M{
+			"$unset": bson.M{
+				"nitrado": "",
+			},
+			"$set": bson.M{
+				"updated_at": time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unlink nitrado account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Nitrado account unlinked",
+	})
 }

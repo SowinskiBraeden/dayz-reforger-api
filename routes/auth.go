@@ -207,7 +207,7 @@ func DiscordCallback(c *gin.Context) {
 		}
 	}
 
-	redirectURL := fmt.Sprintf("%s/login?token=%s", frontendURL, jwtToken)
+	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s", frontendURL, jwtToken)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
@@ -215,15 +215,28 @@ func DiscordCallback(c *gin.Context) {
 func Me(c *gin.Context) {
 	claims := c.MustGet("claims").(*utils.JWTClaims)
 
-	collection := db.GetCollection("accounts")
-	var account models.Account
+	accountsCollection := db.GetCollection("accounts")
+	guildsCollection := db.GetCollection("guilds")
 
-	err := collection.FindOne(c, bson.M{"discord_id": claims.UserID}).Decode(&account)
+	var account models.Account
+	err := accountsCollection.FindOne(c, bson.M{"discord_id": claims.UserID}).Decode(&account)
 	if err != nil {
-		fmt.Println(err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 		return
 	}
+
+	// derive actual instance usage from linked guilds
+	linkedCount, err := guildsCollection.CountDocuments(c, bson.M{
+		"owner_id":          claims.UserID,
+		"nitrado.server_id": bson.M{"$exists": true},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count linked guilds"})
+		return
+	}
+
+	account.UsedInstances = uint8(linkedCount)
+	account.InstanceAddons.InstanceLimit = account.InstanceAddons.CalculateLimit()
 
 	// Strip sensitive tokens before sending to frontend
 	if account.Discord.AccessToken != "" {
@@ -235,9 +248,6 @@ func Me(c *gin.Context) {
 		account.Nitrado.RefreshToken = ""
 	}
 
-	account.InstanceAddons.InstanceLimit = account.InstanceAddons.CalculateLimit()
-
-	utils.LogInfo("[Me] Returning full account for %s", claims.UserID)
 	c.JSON(http.StatusOK, gin.H{"user": account})
 }
 
