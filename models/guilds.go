@@ -36,6 +36,7 @@ type GuildAttributes struct {
 	ConnectionLogsChannel  string                    `bson:"connection_logs_channel"   json:"connection_logs_channel"`
 	BaseBuildLogsChannel   string                    `bson:"base_build_logs_channel"   json:"base_build_logs_channel"`
 	ActivePlayersChannel   string                    `bson:"active_players_channel"    json:"active_players_channel"`
+	ActivePlayersMessageID string                    `bson:"active_players_message_id" json:"active_players_message_id"`
 	WelcomeChannel         string                    `bson:"welcome_channel"           json:"welcome_channel"`
 	SendWelcomeMessage     bool                      `bson:"send_welcome_message"      json:"send_welcome_message"`
 	WelcomeMessage         string                    `bson:"welcome_message"           json:"welcome_message" validate:"max=250"`

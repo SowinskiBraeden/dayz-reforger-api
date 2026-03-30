@@ -107,7 +107,7 @@ func GetGuildChannels(c *gin.Context) {
 	// Bot is not in guild or lacks access
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
 		inviteURL := fmt.Sprintf(
-			"https://discord.com/api/oauth2/authorize?client_id=%s&permissions=2147560512&scope=bot%%20applications.commands",
+			"https://discord.com/api/oauth2/authorize?client_id=%s&permissions=4503602311982144&scope=bot%%20applications.commands",
 			cfg.DiscordClientID,
 		)
 
