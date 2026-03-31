@@ -43,6 +43,7 @@ type GuildAttributes struct {
 	FactionArmbands        map[string]FactionArmband `bson:"faction_armbands"          json:"faction_armbands"`
 	UsedArmbands           []string                  `bson:"used_armbands"             json:"used_armbands"`
 	ExcludedRoles          []string                  `bson:"excluded_roles"            json:"excluded_roles"`
+	AdminAlertRole         string                    `bson:"admin_alert_role"          json:"admin_alert_role"`
 	BotAdminRoles          []string                  `bson:"bot_admin_roles"           json:"bot_admin_roles"`
 	WebAdminUserIDs        []string                  `bson:"web_admin_user_ids"        json:"web_admin_user_ids"`
 	Alarms                 []Alarm                   `bson:"alarms"                    json:"alarms"`
@@ -101,6 +102,7 @@ func GetDefaultConfig(serverID, ownerID string) GuildAttributes {
 		UsedArmbands:           []string{},
 		ExcludedRoles:          []string{},
 		BotAdminRoles:          []string{},
+		AdminAlertRole:         "",
 		WebAdminUserIDs:        []string{},
 		Alarms:                 []Alarm{},
 		Events:                 []Event{},
