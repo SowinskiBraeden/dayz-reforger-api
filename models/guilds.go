@@ -60,6 +60,7 @@ type GuildAttributes struct {
 	MemberRole             string                    `bson:"member_role"               json:"member_role"`
 	IssueMemberRole        bool                      `bson:"issue_member_role"         json:"issue_member_role"`
 	CombatLogTimerMinutes  uint8                     `bson:"combat_log_timer_limits"   json:"combat_log_timer_minutes"  validate:"gte=0,lte=60"`
+	EnableCombatRating     bool                      `bson:"enable_combat_rating"      json:"enable_combat_rating"`
 }
 
 type GuildConfig struct {
