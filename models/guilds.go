@@ -6,7 +6,25 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type Position struct {
+	X float32 `bson:"x" json:"x"`
+	Y float32 `bson:"y" json:"y"`
+}
+
 type Alarm struct {
+	ID               string   `bson:"id" json:"id"`
+	Origin           Position `bson:"origin" json:"origin"`
+	Radius           float32  `bson:"radius" json:"radius"`
+	Name             string   `bson:"name" json:"name"`
+	Channel          string   `bson:"channel" json:"channel"`
+	Role             string   `bson:"role" json:"role"`
+	IgnoredPlayers   []string `bson:"ignored_players" json:"ignored_players"`
+	Rules            []string `bson:"rules" json:"rules"`
+	EMPExempt        bool     `bson:"emp_exempt" json:"emp_exempt"`
+	ShowPlayerCoords bool     `bson:"show_player_coords" json:"show_player_coords"`
+	Disabled         bool     `bson:"disabled" json:"disabled"`
+	EMPExpire        any      `bson:"emp_expire" json:"emp_expire"`
+	Color            string   `bson:"color" json:"color"`
 }
 
 type UAV struct {
